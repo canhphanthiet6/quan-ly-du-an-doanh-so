@@ -315,8 +315,10 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
             <section className="overview-grid">
               <div className="panel">
                 <div className="panel-title">
-                  <h3>Phễu bán hàng</h3>
-                  <span>Giá trị đơn hàng theo giai đoạn</span>
+                  <div>
+                    <h3>Phễu bán hàng</h3>
+                    <span>Giá trị đơn hàng theo giai đoạn</span>
+                  </div>
                 </div>
                 {[100, 80, 50, 30].map((value) => {
                   const sum = projects
@@ -336,8 +338,10 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
               </div>
               <div className="panel">
                 <div className="panel-title">
-                  <h3>Thông báo đến hạn</h3>
-                  <span>Trong vòng 7 ngày</span>
+                  <div>
+                    <h3>Thông báo đến hạn</h3>
+                    <span>Trong vòng 7 ngày</span>
+                  </div>
                 </div>
                 <div className="notice-list">
                   {notes.length ? (
