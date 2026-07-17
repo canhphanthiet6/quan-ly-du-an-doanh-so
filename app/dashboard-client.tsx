@@ -15,6 +15,10 @@ type Project = {
   code: string;
   name: string;
   contractor: string;
+  customer_phone: string;
+  customer_type: string;
+  sales_channel: string;
+  customer_id: number;
   product: string;
   owner_id: number;
   owner: string;
@@ -57,9 +61,46 @@ type InventoryMovement = {
   creator: string;
 };
 
+type Customer = {
+  id: number;
+  name: string;
+  phone: string;
+  customer_type: string;
+  sales_channel: string;
+  contact_count: number;
+  first_contact_at: string;
+  last_contact_at: string;
+  owner: string;
+  quote_count: number;
+  signed_count: number;
+  signed_revenue: number;
+  created_at: string;
+};
+
+type Contract = {
+  id: number;
+  contract_no: string;
+  project_id: number;
+  project_name: string;
+  customer_name: string;
+  customer_phone: string;
+  title: string;
+  contract_value: number;
+  signed_date: string;
+  status: string;
+  salesperson_id: number;
+  salesperson: string;
+  notes: string;
+  creator: string;
+};
+
+type SalesSummary = { id: number; full_name: string; role: string; signed_count: number; revenue: number };
+
 const VIEWS = [
   ["overview", "Tổng quan", "▦"],
   ["projects", "Đơn hàng", "▱"],
+  ["customers", "Data khách hàng", "♧"],
+  ["contracts", "Hợp đồng", "▣"],
   ["inventory", "Kho hàng", "▥"],
   ["movements", "Xuất / nhập kho", "⇄"],
   ["reports", "Báo cáo công việc", "☷"],
@@ -84,6 +125,16 @@ const SEAFOOD_PRODUCTS = [
 ];
 
 const money = (n: number) => new Intl.NumberFormat("vi-VN").format(n || 0) + " ₫";
+const dateTime = (value: string) =>
+  value
+    ? new Date(value).toLocaleString("vi-VN", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "—";
 const short = (n: number) =>
   n >= 1e9 ? (n / 1e9).toFixed(1).replace(".0", "") + " tỷ" : Math.round(n / 1e6) + " tr";
 const stageLabel = (p: number) =>
@@ -110,6 +161,9 @@ function isMonthInSeason(value: string, month = new Date().getMonth() + 1) {
 export default function Dashboard({ initialUser }: { initialUser: User }) {
   const [view, setView] = useState("overview");
   const [projects, setProjects] = useState<Project[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [contracts, setContracts] = useState<Contract[]>([]);
+  const [salesSummary, setSalesSummary] = useState<SalesSummary[]>([]);
   const [products, setProducts] = useState<InventoryProduct[]>([]);
   const [movements, setMovements] = useState<InventoryMovement[]>([]);
   const [items, setItems] = useState<any[]>([]);
@@ -118,22 +172,29 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
   const [modal, setModal] = useState<string | null>(null);
   const [editing, setEditing] = useState<Project | null>(null);
   const [editingProduct, setEditingProduct] = useState<InventoryProduct | null>(null);
+  const [editingContract, setEditingContract] = useState<Contract | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [flash, setFlash] = useState("");
 
   const loadCore = async () => {
-    const [p, n, u, inventory, stockMoves] = await Promise.all([
+    const [p, n, u, inventory, stockMoves, customerData, contractData] = await Promise.all([
       fetch("/api/projects").then((r) => r.json()),
       fetch("/api/notifications").then((r) => r.json()),
       fetch("/api/users").then((r) => r.json()),
       fetch("/api/inventory").then((r) => r.json()),
       fetch("/api/inventory/movements").then((r) => r.json()),
+      fetch("/api/customers").then((r) => r.json()),
+      fetch("/api/contracts").then((r) => r.json()),
     ]);
     setProjects(p.projects || []);
     setNotes(n.notifications || []);
     setUsers(u.users || []);
     setProducts(inventory.products || []);
     setMovements(stockMoves.movements || []);
+    setCustomers(customerData.customers || []);
+    setContracts(contractData.contracts || []);
+    setSalesSummary(contractData.salesSummary || []);
   };
 
   useEffect(() => {
@@ -150,13 +211,15 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
 
   const total = projects.reduce((sum, p) => sum + Number(p.value), 0);
   const weighted = projects.reduce((sum, p) => sum + (Number(p.value) * p.probability) / 100, 0);
-  const closed = projects
-    .filter((p) => p.probability === 100)
-    .reduce((sum, p) => sum + Number(p.value), 0);
+  const signedRevenue = contracts
+    .filter((contract) => contract.status === "Đã ký")
+    .reduce((sum, contract) => sum + Number(contract.contract_value), 0);
   const canEdit = (p: Project) =>
     initialUser.role === "director" || p.owner_id === initialUser.id || p.created_by === initialUser.id;
   const canManageStock = ["director", "admin", "accounting"].includes(initialUser.role);
   const stockAlerts = products.filter((p) => Number(p.stock_qty) <= Number(p.min_stock)).length;
+  const pendingContracts = contracts.filter((contract) => contract.status === "Chờ duyệt").length;
+  const actionAlerts = notes.length + stockAlerts + pendingContracts;
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -179,6 +242,9 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
       method = editingProduct ? "PATCH" : "POST";
     } else if (modal === "movement") {
       url = "/api/inventory/movements";
+    } else if (modal === "contract") {
+      url = editingContract ? "/api/contracts/" + editingContract.id : "/api/contracts";
+      method = editingContract ? "PATCH" : "POST";
     } else if (modal === "user") {
       url = "/api/users";
     } else {
@@ -195,9 +261,15 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
       setError(data.error || "Không thể lưu");
       return;
     }
+    if (modal === "project" && !editing && data.customerInfo?.isExisting) {
+      setFlash(`Khách cũ ${data.project?.contractor || ""} đã quay lại lần ${data.customerInfo.returnNumber}. Hồ sơ đã được cập nhật trong Data khách hàng.`);
+    } else if (modal === "contract" && (data.contract?.status === "Đã ký" || editingContract)) {
+      setFlash("Hợp đồng đã được cập nhật. Doanh số của người bán được tự động tính lại.");
+    }
     setModal(null);
     setEditing(null);
     setEditingProduct(null);
+    setEditingContract(null);
     await loadCore();
     if (["reports", "plans", "documents", "events"].includes(view)) {
       const refreshed = await fetch("/api/modules/" + view).then((r) => r.json());
@@ -221,6 +293,8 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
               <i>{icon}</i>
               {label}
               {id === "projects" && <em>{projects.length}</em>}
+              {id === "customers" && <em>{customers.length}</em>}
+              {id === "contracts" && contracts.filter((c) => c.status === "Chờ duyệt").length > 0 && <em className="alert-count">{contracts.filter((c) => c.status === "Chờ duyệt").length}</em>}
               {id === "inventory" && stockAlerts > 0 && <em className="alert-count">{stockAlerts}</em>}
             </button>
           ))}
@@ -251,22 +325,25 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
             <h1>{VIEWS.find((x) => x[0] === view)?.[1]}</h1>
             <p>Cập nhật ngày {new Date().toLocaleDateString("vi-VN")}</p>
           </div>
-          <button className="notify" onClick={() => setView("overview")}>
-            ♢<b>{notes.length}</b>
+          <button className="notify" onClick={() => setView("overview")}> 
+            ♢<b>{actionAlerts}</b>
           </button>
-          {(!["inventory", "movements"].includes(view) || canManageStock) && (
+          {view !== "customers" && (!["inventory", "movements"].includes(view) || canManageStock) && (
             <button
               className="add"
               onClick={() => {
                 setEditing(null);
                 setEditingProduct(null);
+                setEditingContract(null);
                 setModal(
                   view === "projects" || view === "overview"
                     ? "project"
                     : view === "inventory"
                       ? "product"
                       : view === "movements"
-                        ? "movement"
+                      ? "movement"
+                      : view === "contracts"
+                        ? "contract"
                         : view === "users"
                           ? "user"
                           : view,
@@ -278,6 +355,8 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
           )}
         </header>
 
+        {flash && <div className="flash-message"><span>✓</span>{flash}<button onClick={() => setFlash("")}>×</button></div>}
+
         {view === "overview" && (
           <>
             <section className="hero">
@@ -285,7 +364,7 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
                 <small>BẢNG ĐIỀU HÀNH KINH DOANH</small>
                 <h2>Chào anh {initialUser.fullName.split(" ").pop()}.</h2>
                 <p>
-                  Có <b>{notes.length} công việc</b> và <b>{stockAlerts} cảnh báo kho</b> cần lưu ý.
+                  Có <b>{notes.length} công việc</b>, <b>{stockAlerts} cảnh báo kho</b> và <b>{pendingContracts} hợp đồng chờ duyệt</b>.
                 </p>
               </div>
               <button onClick={() => setView("projects")}>Xem đơn hàng →</button>
@@ -302,14 +381,14 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
                 <small>Theo khả năng chốt đơn</small>
               </article>
               <article>
-                <span>ĐÃ CHỐT ĐƠN</span>
-                <b>{short(closed)}</b>
-                <small>{projects.filter((p) => p.probability === 100).length} đơn hàng đã chốt</small>
+                <span>HỢP ĐỒNG ĐÃ KÝ</span>
+                <b>{short(signedRevenue)}</b>
+                <small>{contracts.filter((contract) => contract.status === "Đã ký").length} hợp đồng đã ghi doanh số</small>
               </article>
               <article>
                 <span>CẦN XỬ LÝ</span>
-                <b>{notes.length + stockAlerts} việc</b>
-                <small>Công việc đến hạn và cảnh báo kho</small>
+                <b>{actionAlerts} việc</b>
+                <small>Việc đến hạn, kho và hợp đồng chờ duyệt</small>
               </article>
             </section>
             <section className="overview-grid">
@@ -379,7 +458,8 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
                 <thead>
                   <tr>
                     <th>ĐƠN HÀNG / CƠ HỘI</th>
-                    <th>KHÁCH HÀNG / SẢN PHẨM</th>
+                    <th>KHÁCH HÀNG</th>
+                    <th>KÊNH BÁN / SẢN PHẨM</th>
                     <th>PHỤ TRÁCH</th>
                     <th>GIAI ĐOẠN</th>
                     <th>GIÁ TRỊ</th>
@@ -396,8 +476,9 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
                       </td>
                       <td>
                         {p.contractor}
-                        <small>{p.product}</small>
+                        <small>{p.customer_phone} · {p.customer_type}</small>
                       </td>
+                      <td>{p.sales_channel}<small>{p.product}</small></td>
                       <td>{p.owner}</td>
                       <td><mark className={"s" + p.probability}>{stageLabel(p.probability)}</mark></td>
                       <td><b>{money(Number(p.value))}</b></td>
@@ -416,6 +497,18 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
               </table>
             </div>
           </section>
+        )}
+
+        {view === "customers" && <CustomersView customers={customers} />}
+
+        {view === "contracts" && (
+          <ContractsView
+            contracts={contracts}
+            salesSummary={salesSummary}
+            director={initialUser.role === "director"}
+            onAdd={() => { setEditingContract(null); setModal("contract"); }}
+            onEdit={(contract) => { setEditingContract(contract); setModal("contract"); }}
+          />
         )}
 
         {view === "inventory" && (
@@ -449,16 +542,83 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
           kind={modal}
           editing={editing}
           editingProduct={editingProduct}
+          editingContract={editingContract}
           users={users}
           products={products}
+          projects={projects}
           director={initialUser.role === "director"}
           busy={busy}
           error={error}
-          onClose={() => { setModal(null); setEditing(null); setEditingProduct(null); setError(""); }}
+          onClose={() => { setModal(null); setEditing(null); setEditingProduct(null); setEditingContract(null); setError(""); }}
           onSubmit={submit}
         />
       )}
     </div>
+  );
+}
+
+function CustomersView({ customers }: { customers: Customer[] }) {
+  const returning = customers.filter((c) => Number(c.contact_count) > 1).length;
+  const totalRevenue = customers.reduce((sum, c) => sum + Number(c.signed_revenue), 0);
+  return (
+    <>
+      <section className="customer-stats">
+        <article><span>TỔNG KHÁCH HÀNG</span><b>{customers.length}</b><small>Tự động lấy từ báo giá / đơn hàng</small></article>
+        <article><span>KHÁCH QUAY LẠI</span><b>{returning}</b><small>Có từ 2 lần liên hệ trở lên</small></article>
+        <article><span>DOANH SỐ ĐÃ KÝ</span><b>{short(totalRevenue)}</b><small>Tổng hợp từ hợp đồng</small></article>
+      </section>
+      <section className="panel page-panel customer-panel">
+        <div className="panel-title"><div><h3>Data khách hàng</h3><span>Khách tự động được tạo khi nhập báo giá hoặc đơn hàng mới</span></div></div>
+        <div className="data-table">
+          <table>
+            <thead><tr><th>KHÁCH HÀNG</th><th>NGÀY LƯU DATA</th><th>PHÂN LOẠI</th><th>KÊNH BÁN</th><th>LẦN LIÊN HỆ</th><th>ĐƠN / BÁO GIÁ</th><th>HỢP ĐỒNG</th><th>DOANH SỐ</th><th>SALE PHỤ TRÁCH</th><th>LẦN GẦN NHẤT</th></tr></thead>
+            <tbody>{customers.map((c) => <tr key={c.id} className={Number(c.contact_count) > 1 ? "returning-customer" : ""}>
+              <td><b>{c.name}</b><small>{c.phone}</small></td>
+              <td><b>{dateTime(c.created_at)}</b><small>Thời điểm tự động lưu</small></td>
+              <td><mark>{c.customer_type}</mark></td>
+              <td>{c.sales_channel}</td>
+              <td>{Number(c.contact_count) > 1 ? <mark className="customer-return">Quay lại {Number(c.contact_count) - 1} lần</mark> : <mark className="customer-new">Khách mới</mark>}<small>Tổng {c.contact_count} lần</small></td>
+              <td>{c.quote_count}</td>
+              <td>{c.signed_count} đã ký</td>
+              <td><b>{money(Number(c.signed_revenue))}</b></td>
+              <td>{c.owner}</td>
+              <td>{dateTime(c.last_contact_at)}</td>
+            </tr>)}</tbody>
+          </table>
+          {!customers.length && <p className="empty">Chưa có data khách hàng. Khi tạo đơn hàng đầu tiên, khách sẽ tự động xuất hiện tại đây.</p>}
+        </div>
+      </section>
+    </>
+  );
+}
+
+function ContractsView({ contracts, salesSummary, director, onAdd, onEdit }: {
+  contracts: Contract[];
+  salesSummary: SalesSummary[];
+  director: boolean;
+  onAdd: () => void;
+  onEdit: (contract: Contract) => void;
+}) {
+  const signedTotal = contracts.filter((c) => c.status === "Đã ký").reduce((sum, c) => sum + Number(c.contract_value), 0);
+  return (
+    <>
+      <section className="contract-summary">
+        <article><span>DOANH SỐ ĐÃ GHI NHẬN</span><b>{short(signedTotal)}</b><small>Chỉ tính hợp đồng trạng thái Đã ký</small></article>
+        <article><span>CHỜ GIÁM ĐỐC DUYỆT</span><b>{contracts.filter((c) => c.status === "Chờ duyệt").length}</b><small>Hợp đồng chưa được cộng doanh số</small></article>
+        <article><span>HỢP ĐỒNG ĐÃ KÝ</span><b>{contracts.filter((c) => c.status === "Đã ký").length}</b><small>Đã phân bổ cho Sales phụ trách</small></article>
+      </section>
+      <section className="sales-revenue-grid">
+        {salesSummary.map((sale, index) => <article key={sale.id}><i>{index + 1}</i><span><small>DOANH SỐ SALES</small><b>{sale.full_name}</b><strong>{money(Number(sale.revenue))}</strong><em>{sale.signed_count} hợp đồng đã ký</em></span></article>)}
+        {!salesSummary.length && <div className="panel empty">Chưa có Sales hoặc hợp đồng đã ký.</div>}
+      </section>
+      <section className="panel page-panel contract-panel">
+        <div className="panel-title"><div><h3>Thư mục hợp đồng</h3><span>Doanh số tự động cộng cho người được phân công trên đơn hàng</span></div><button onClick={onAdd}>＋ Thêm hợp đồng</button></div>
+        <div className="data-table"><table>
+          <thead><tr><th>SỐ HỢP ĐỒNG</th><th>KHÁCH HÀNG</th><th>ĐƠN HÀNG</th><th>SALE ĐƯỢC TÍNH</th><th>GIÁ TRỊ</th><th>NGÀY KÝ</th><th>TRẠNG THÁI</th><th></th></tr></thead>
+          <tbody>{contracts.map((c) => <tr key={c.id}><td><b>{c.contract_no}</b><small>{c.title}</small></td><td>{c.customer_name}<small>{c.customer_phone}</small></td><td>{c.project_name}</td><td><b>{c.salesperson}</b></td><td><b>{money(Number(c.contract_value))}</b></td><td>{c.signed_date ? new Date(c.signed_date).toLocaleDateString("vi-VN") : "—"}</td><td><mark className={c.status === "Đã ký" ? "contract-signed" : c.status === "Hủy" ? "contract-cancel" : "contract-pending"}>{c.status}</mark></td><td>{director && <button onClick={() => onEdit(c)}>Duyệt / Sửa</button>}</td></tr>)}</tbody>
+        </table>{!contracts.length && <p className="empty">Chưa có hợp đồng. Bấm “Thêm hợp đồng” để bắt đầu.</p>}</div>
+      </section>
+    </>
   );
 }
 
@@ -627,12 +787,14 @@ function UsersView({ users, canAdd, onAdd }: { users: any[]; canAdd: boolean; on
   );
 }
 
-function Modal({ kind, editing, editingProduct, users, products, director, busy, error, onClose, onSubmit }: {
+function Modal({ kind, editing, editingProduct, editingContract, users, products, projects, director, busy, error, onClose, onSubmit }: {
   kind: string;
   editing: Project | null;
   editingProduct: InventoryProduct | null;
+  editingContract: Contract | null;
   users: any[];
   products: InventoryProduct[];
+  projects: Project[];
   director: boolean;
   busy: boolean;
   error: string;
@@ -643,6 +805,7 @@ function Modal({ kind, editing, editingProduct, users, products, director, busy,
     project: editing ? "Cập nhật đơn hàng" : "Thêm đơn hàng",
     product: editingProduct ? "Cập nhật hàng hóa" : "Thêm hàng hóa",
     movement: "Tạo phiếu xuất / nhập kho",
+    contract: editingContract ? "Duyệt / cập nhật hợp đồng" : "Thêm hợp đồng",
     reports: "Báo cáo công việc",
     plans: "Kế hoạch tuần",
     documents: "Thêm công văn",
@@ -663,7 +826,7 @@ function Modal({ kind, editing, editingProduct, users, products, director, busy,
               <label className="wide">Tên đơn hàng / cơ hội bán<input name="name" required defaultValue={editing?.name} placeholder="VD: Đơn cá nục cho quán A" /></label>
               <label>Mã đơn hàng<input name="code" required defaultValue={editing?.code || "DH-2026-"} /></label>
               <label>Giá trị dự kiến<input name="value" type="number" min="0" defaultValue={editing?.value || 0} /></label>
-              <label>Khách hàng / kênh bán<input name="contractor" defaultValue={editing?.contractor} placeholder="Khách lẻ, quán ăn, nhóm mua..." /></label>
+              <CustomerFields editing={editing} checkReturn={!editing} />
               <label>Sản phẩm hải sản<input name="product" list="seafood-products" defaultValue={editing?.product} placeholder="Chọn hoặc nhập sản phẩm" /><datalist id="seafood-products">{SEAFOOD_PRODUCTS.map((product) => <option key={product} value={product} />)}</datalist></label>
               <label>Giai đoạn bán hàng<select name="probability" defaultValue={editing?.probability || 30}><option value="30">Khách mới / Quan tâm — 30%</option><option value="50">Đang báo giá — 50%</option><option value="80">Sắp chốt — 80%</option><option value="100">Đã chốt đơn — 100%</option></select></label>
               {director && <label>Phân công<select name="ownerId" defaultValue={editing?.owner_id}>{users.map((u) => <option key={u.id} value={u.id}>{u.full_name}</option>)}</select></label>}
@@ -693,6 +856,17 @@ function Modal({ kind, editing, editingProduct, users, products, director, busy,
               <label>Đơn giá nhập / bán<input name="unitPrice" type="number" min="0" defaultValue="0" /></label>
               <label className="wide">Ghi chú<input name="note" placeholder="Nhà cung cấp, khách hàng, số đơn..." /></label>
               {!products.length && <div className="form-hint wide">Cần tạo ít nhất một hàng hóa trước khi lập phiếu kho.</div>}
+            </>
+          ) : kind === "contract" ? (
+            <>
+              {editingContract ? <div className="contract-edit-info wide"><b>{editingContract.project_name}</b><span>{editingContract.customer_name} · {editingContract.customer_phone}</span><small>Doanh số ghi cho: {editingContract.salesperson}</small></div> : <label className="wide">Đơn hàng liên kết<select name="projectId" required defaultValue=""><option value="" disabled>Chọn đơn hàng / báo giá</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.code} — {project.contractor} — {money(Number(project.value))} — Sale: {project.owner}</option>)}</select></label>}
+              <label>Số hợp đồng<input name="contractNo" required defaultValue={editingContract?.contract_no || "HĐ-2026-"} /></label>
+              <label>Giá trị hợp đồng<input name="contractValue" type="number" min="0" required defaultValue={Number(editingContract?.contract_value || 0)} /></label>
+              <label className="wide">Tên / nội dung hợp đồng<input name="title" defaultValue={editingContract?.title} placeholder="VD: Cung cấp hải sản tháng 7" /></label>
+              <label>Ngày ký<input name="signedDate" type="date" defaultValue={editingContract?.signed_date?.slice(0, 10)} /></label>
+              {director ? <label>Trạng thái<select name="status" defaultValue={editingContract?.status || "Chờ duyệt"}><option>Chờ duyệt</option><option>Đã ký</option><option>Hủy</option></select></label> : <input type="hidden" name="status" value="Chờ duyệt" />}
+              <label className="wide">Ghi chú<textarea name="notes" defaultValue={editingContract?.notes} /></label>
+              {!director && <div className="form-hint wide">Sau khi lưu, hợp đồng ở trạng thái Chờ duyệt. Doanh số chỉ được cộng khi Giám đốc chuyển sang Đã ký.</div>}
             </>
           ) : kind === "reports" ? (
             <>
@@ -747,5 +921,35 @@ function Modal({ kind, editing, editingProduct, users, products, director, busy,
         </footer>
       </form>
     </div>
+  );
+}
+
+function CustomerFields({ editing, checkReturn }: { editing: Project | null; checkReturn: boolean }) {
+  const [name, setName] = useState(editing?.contractor || "");
+  const [phone, setPhone] = useState(editing?.customer_phone || "");
+  const [match, setMatch] = useState<any>(null);
+
+  useEffect(() => {
+    if (!checkReturn || name.trim().length < 2 || phone.replace(/\D/g, "").length < 8) {
+      setMatch(null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      fetch(`/api/customers/check?name=${encodeURIComponent(name)}&phone=${encodeURIComponent(phone)}`)
+        .then((response) => response.json())
+        .then((data) => setMatch(data.found ? data : null))
+        .catch(() => setMatch(null));
+    }, 450);
+    return () => clearTimeout(timer);
+  }, [name, phone, checkReturn]);
+
+  return (
+    <>
+      <label>Tên khách hàng<input name="customerName" required value={name} onChange={(event) => setName(event.target.value)} placeholder="VD: Nguyễn Văn A" /></label>
+      <label>Số điện thoại<input name="customerPhone" type="tel" required value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="VD: 0901234567" /></label>
+      <label>Loại khách hàng<select name="customerType" defaultValue={editing?.customer_type || "Khách lẻ"}><option>Khách lẻ</option><option>Quán ăn / Nhà hàng</option><option>Đại lý</option><option>Nhóm mua chung</option><option>Doanh nghiệp</option><option>Khác</option></select></label>
+      <label>Kênh bán hàng<select name="salesChannel" defaultValue={editing?.sales_channel || "Trực tiếp"}><option>Trực tiếp</option><option>Facebook</option><option>Zalo</option><option>TikTok</option><option>Khách giới thiệu</option><option>Khách cũ quay lại</option><option>Điện thoại</option><option>Khác</option></select></label>
+      {match && <div className="customer-match wide"><b>Khách hàng cũ đã được nhận diện</b><span>{match.customer.name} · {match.customer.phone}</span><strong>Đang quay lại lần {match.nextReturnNumber}</strong><small>Lần gần nhất: {new Date(match.customer.last_contact_at).toLocaleDateString("vi-VN")} · Sale phụ trách: {match.customer.owner}</small></div>}
+    </>
   );
 }
