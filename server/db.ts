@@ -28,6 +28,25 @@ export async function ensureSchema() {
       `CREATE TABLE IF NOT EXISTS documents (id SERIAL PRIMARY KEY, direction TEXT NOT NULL CHECK (direction IN ('Đến','Đi')), document_no TEXT NOT NULL DEFAULT '', subject TEXT NOT NULL, partner TEXT NOT NULL DEFAULT '', issue_date DATE NOT NULL DEFAULT CURRENT_DATE, owner_id INTEGER REFERENCES users(id), due_date DATE, status TEXT NOT NULL DEFAULT 'Đang xử lý', notes TEXT NOT NULL DEFAULT '', created_by INTEGER REFERENCES users(id), created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
       `CREATE TABLE IF NOT EXISTS events (id SERIAL PRIMARY KEY, event_type TEXT NOT NULL CHECK (event_type IN ('Họp','Lịch hẹn','Công tác')), title TEXT NOT NULL, start_at TIMESTAMPTZ NOT NULL, end_at TIMESTAMPTZ, location TEXT NOT NULL DEFAULT '', participants TEXT NOT NULL DEFAULT '', owner_id INTEGER REFERENCES users(id), notes TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'Sắp diễn ra', created_by INTEGER REFERENCES users(id), created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
       `CREATE TABLE IF NOT EXISTS inventory_products (id SERIAL PRIMARY KEY, sku TEXT UNIQUE NOT NULL, name TEXT NOT NULL, category TEXT NOT NULL DEFAULT '', unit TEXT NOT NULL DEFAULT 'kg', cost_price NUMERIC(14,2) NOT NULL DEFAULT 0, sale_price NUMERIC(14,2) NOT NULL DEFAULT 0, stock_qty NUMERIC(14,3) NOT NULL DEFAULT 0, min_stock NUMERIC(14,3) NOT NULL DEFAULT 0, peak_months TEXT NOT NULL DEFAULT '', season_note TEXT NOT NULL DEFAULT '', active BOOLEAN NOT NULL DEFAULT TRUE, created_by INTEGER REFERENCES users(id), created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+      `INSERT INTO inventory_products(sku,name,category,unit,cost_price,sale_price,stock_qty,min_stock)
+       SELECT seed.sku,seed.name,seed.category,'kg',0,0,0,0
+       FROM (VALUES
+         ('HS-CA-NUC','Cá nục','Cá'),
+         ('HS-CA-BAC-MA','Cá bạc má','Cá'),
+         ('HS-CA-BA-TRAU','Cá bã trầu','Cá'),
+         ('HS-CA-NGU','Cá ngừ','Cá'),
+         ('HS-CA-THU','Cá thu','Cá'),
+         ('HS-BACH-TUOC','Bạch tuộc','Mực & bạch tuộc'),
+         ('HS-MUC-ONG','Mực ống','Mực & bạch tuộc'),
+         ('HS-MUC-TRUNG','Mực trứng','Mực & bạch tuộc'),
+         ('HS-MUC-KHO','Mực khô','Mực khô & một nắng'),
+         ('HS-MUC-1-NANG','Mực 1 nắng','Mực khô & một nắng')
+       ) AS seed(sku,name,category)
+       WHERE NOT EXISTS (
+         SELECT 1 FROM inventory_products existing
+         WHERE LOWER(TRIM(existing.name))=LOWER(TRIM(seed.name))
+       )
+       ON CONFLICT (sku) DO NOTHING`,
       `CREATE TABLE IF NOT EXISTS project_items (id SERIAL PRIMARY KEY, project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE, product_id INTEGER NOT NULL REFERENCES inventory_products(id), product_name TEXT NOT NULL, unit TEXT NOT NULL DEFAULT 'kg', quantity NUMERIC(14,3) NOT NULL CHECK (quantity > 0), unit_price NUMERIC(14,2) NOT NULL DEFAULT 0, price_date DATE NOT NULL DEFAULT CURRENT_DATE, line_total NUMERIC(16,2) NOT NULL DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
       `CREATE TABLE IF NOT EXISTS inventory_movements (id SERIAL PRIMARY KEY, product_id INTEGER NOT NULL REFERENCES inventory_products(id), movement_type TEXT NOT NULL CHECK (movement_type IN ('Nhập','Xuất','Điều chỉnh tăng','Điều chỉnh giảm')), quantity NUMERIC(14,3) NOT NULL CHECK (quantity > 0), unit_price NUMERIC(14,2) NOT NULL DEFAULT 0, movement_date DATE NOT NULL DEFAULT CURRENT_DATE, note TEXT NOT NULL DEFAULT '', created_by INTEGER REFERENCES users(id), created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
       `CREATE TABLE IF NOT EXISTS contracts (id SERIAL PRIMARY KEY, contract_no TEXT UNIQUE NOT NULL, project_id INTEGER NOT NULL REFERENCES projects(id), customer_id INTEGER REFERENCES customers(id), title TEXT NOT NULL DEFAULT '', contract_value BIGINT NOT NULL DEFAULT 0, signed_date DATE, status TEXT NOT NULL DEFAULT 'Chờ duyệt' CHECK (status IN ('Chờ duyệt','Đã ký','Hủy')), salesperson_id INTEGER REFERENCES users(id), notes TEXT NOT NULL DEFAULT '', created_by INTEGER REFERENCES users(id), approved_by INTEGER REFERENCES users(id), created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,

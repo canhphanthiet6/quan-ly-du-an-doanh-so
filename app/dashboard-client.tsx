@@ -135,11 +135,14 @@ const VIEWS = [
 const SEAFOOD_PRODUCTS = [
   "Cá nục",
   "Cá bạc má",
+  "Cá bã trầu",
   "Cá ngừ",
   "Cá thu",
+  "Bạch tuộc",
   "Mực ống",
   "Mực trứng",
-  "Bạch tuộc",
+  "Mực khô",
+  "Mực 1 nắng",
   "Ghẹ",
   "Tôm",
   "Combo hải sản",
@@ -1128,7 +1131,11 @@ function OrderItemsFields({ editing, products }: { editing: Project | null; prod
         return <div className="order-item-row" key={item.key}>
           <select required value={item.productId} onChange={(event) => changeProduct(item.key, event.target.value)}>
             <option value="" disabled>Chọn loại hải sản</option>
-            {products.map((product) => <option key={product.id} value={product.id} disabled={selectedIds.has(String(product.id)) && item.productId !== String(product.id)}>{product.name}</option>)}
+            {products.map((product) => {
+              const missingPrice = Number(product.sale_price) <= 0;
+              const alreadySelected = selectedIds.has(String(product.id)) && item.productId !== String(product.id);
+              return <option key={product.id} value={product.id} disabled={(missingPrice && item.productId !== String(product.id)) || alreadySelected}>{product.name} — {missingPrice ? "Cần cập nhật giá bán" : money(Number(product.sale_price)) + "/" + product.unit}</option>;
+            })}
           </select>
           <label><input required type="number" min="0.001" step="0.001" value={item.quantity} onChange={(event) => changeQuantity(item.key, event.target.value)} placeholder="0" /><small>{item.unit}</small></label>
           <span className={item.unitPrice > 0 ? "" : "missing-price"}><b>{money(item.unitPrice)}</b><small>Giá ngày {new Date(item.priceDate + "T00:00:00").toLocaleDateString("vi-VN")}</small></span>

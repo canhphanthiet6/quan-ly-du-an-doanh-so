@@ -20,6 +20,8 @@ Website nội bộ quản lý đơn hàng, khách hàng, doanh số và công vi
 - Menu Kênh bán hàng riêng, có thể chọn từng tháng để xem số khách, số đơn/báo giá, giá trị dự kiến, hợp đồng đã ký và doanh số thực tế của từng kênh.
 - Xếp hạng kênh hiệu quả nhất theo doanh số hợp đồng đã ký trong tháng: Trực tiếp, Facebook, Zalo, TikTok, khách giới thiệu, khách cũ quay lại, điện thoại và các kênh khác.
 - Danh mục hải sản gợi ý: cá nục, cá bạc má, cá ngừ, cá thu, mực ống, mực trứng, bạch tuộc, ghẹ, tôm và combo hải sản.
+- Hệ thống tự bổ sung sẵn 10 mặt hàng chính nếu Kho đang thiếu: cá nục, cá bạc má, cá bã trầu, cá ngừ, cá thu, bạch tuộc, mực ống, mực trứng, mực khô và mực 1 nắng.
+- Mặt hàng được bổ sung có giá ban đầu bằng 0 và được đánh dấu “Cần cập nhật giá bán”; cần nhập giá trong Kho hàng trước khi đưa vào đơn.
 - Quản lý xuất kho, nhập kho, điều chỉnh tăng/giảm và tự động tính tồn kho.
 - Theo dõi giá nhập, giá bán, lãi dự kiến và giá trị hàng tồn.
 - Phân loại hàng bán chạy, bán chậm theo lượng xuất trong 30 ngày.
