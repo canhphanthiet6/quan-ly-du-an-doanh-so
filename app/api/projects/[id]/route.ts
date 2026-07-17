@@ -1,6 +1,7 @@
 import { canManageAll, getCurrentUser } from "../../../../server/auth";
 import { saveCustomer } from "../../../../server/customer";
 import { ensureSchema, getPool, query } from "../../../../server/db";
+import { prepareOrderItems, replaceOrderItems } from "../../../../server/order-items";
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser();
@@ -17,11 +18,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   try {
     await client.query("BEGIN");
     const customerInfo = await saveCustomer(client, data, user.id, ownerId, false);
+    const orderDetail = await prepareOrderItems(client, data.itemsJson, Number(id));
     await client.query(`UPDATE projects SET name=COALESCE($1,name),contractor=$2,customer_phone=$3,customer_type=$4,sales_channel=$5,customer_id=$6,product=COALESCE($7,product),owner_id=$8,probability=COALESCE($9,probability),status=COALESCE($10,status),value=COALESCE($11,value),deadline=COALESCE($12,deadline),next_action=COALESCE($13,next_action),updated_at=NOW(),approved_by=CASE WHEN $14 THEN $15 ELSE approved_by END WHERE id=$16`, [
       data.name || null, String(data.customerName || "").trim(), String(data.customerPhone || "").trim(), data.customerType || "Khách lẻ", data.salesChannel || "Trực tiếp", customerInfo.id,
-      data.product || null, ownerId, data.probability ? Number(data.probability) : null, data.status || null, data.value !== undefined ? Number(data.value) : null,
+      orderDetail.summary, ownerId, data.probability ? Number(data.probability) : null, data.status || null, orderDetail.total,
       data.deadline || null, data.nextAction || null, canManageAll(user), user.id, id,
     ]);
+    await replaceOrderItems(client, Number(id), orderDetail.items);
     await client.query("COMMIT");
     return Response.json({ ok: true, customerInfo });
   } catch (error) {

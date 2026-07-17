@@ -1,11 +1,27 @@
 import { canManageAll, getCurrentUser } from "../../../server/auth";
 import { saveCustomer } from "../../../server/customer";
 import { ensureSchema, getPool, query } from "../../../server/db";
+import { prepareOrderItems, replaceOrderItems } from "../../../server/order-items";
 
 export async function GET() {
   const user = await getCurrentUser();
   if (!user) return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
-  const result = await query(`SELECT p.*,COALESCE(o.full_name,'Chưa phân công') owner,c.full_name creator FROM projects p LEFT JOIN users o ON o.id=p.owner_id LEFT JOIN users c ON c.id=p.created_by ORDER BY p.updated_at DESC`);
+  const result = await query(`
+    SELECT p.*,COALESCE(o.full_name,'Chưa phân công') owner,c.full_name creator,
+      COALESCE(lines.items,'[]'::json) items
+    FROM projects p
+    LEFT JOIN users o ON o.id=p.owner_id
+    LEFT JOIN users c ON c.id=p.created_by
+    LEFT JOIN LATERAL (
+      SELECT JSON_AGG(JSON_BUILD_OBJECT(
+        'id',pi.id,'product_id',pi.product_id,'product_name',pi.product_name,
+        'unit',pi.unit,'quantity',pi.quantity,'unit_price',pi.unit_price,
+        'price_date',pi.price_date,'line_total',pi.line_total
+      ) ORDER BY pi.id) items
+      FROM project_items pi WHERE pi.project_id=p.id
+    ) lines ON TRUE
+    ORDER BY p.updated_at DESC
+  `);
   return Response.json({ projects: result.rows, user });
 }
 
@@ -19,10 +35,12 @@ export async function POST(request: Request) {
   try {
     await client.query("BEGIN");
     const customerInfo = await saveCustomer(client, data, user.id, ownerId, true);
+    const orderDetail = await prepareOrderItems(client, data.itemsJson);
     const result = await client.query(`INSERT INTO projects(code,name,contractor,customer_phone,customer_type,sales_channel,customer_id,product,owner_id,probability,status,value,deadline,next_action,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`, [
       data.code, data.name, String(data.customerName || "").trim(), String(data.customerPhone || "").trim(), data.customerType || "Khách lẻ", data.salesChannel || "Trực tiếp", customerInfo.id,
-      data.product || "", ownerId, Number(data.probability || 30), data.status || "Khách mới / Quan tâm", Number(data.value || 0), data.deadline || null, data.nextAction || "", user.id,
+      orderDetail.summary, ownerId, Number(data.probability || 30), data.status || "Khách mới / Quan tâm", orderDetail.total, data.deadline || null, data.nextAction || "", user.id,
     ]);
+    await replaceOrderItems(client, result.rows[0].id, orderDetail.items);
     await client.query("COMMIT");
     return Response.json({ project: result.rows[0], customerInfo }, { status: 201 });
   } catch (error) {

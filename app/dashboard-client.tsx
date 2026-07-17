@@ -10,6 +10,17 @@ type User = {
   mustChangePassword: boolean;
 };
 
+type ProjectItem = {
+  id: number;
+  product_id: number;
+  product_name: string;
+  unit: string;
+  quantity: number;
+  unit_price: number;
+  price_date: string;
+  line_total: number;
+};
+
 type Project = {
   id: number;
   code: string;
@@ -28,6 +39,7 @@ type Project = {
   deadline: string;
   next_action: string;
   created_by: number;
+  items: ProjectItem[];
 };
 
 type InventoryProduct = {
@@ -96,10 +108,20 @@ type Contract = {
 
 type SalesSummary = { id: number; full_name: string; role: string; signed_count: number; revenue: number };
 
+type ChannelPerformance = {
+  sales_channel: string;
+  quote_count: number;
+  customer_count: number;
+  expected_value: number;
+  signed_count: number;
+  revenue: number;
+};
+
 const VIEWS = [
   ["overview", "Tổng quan", "▦"],
   ["projects", "Đơn hàng", "▱"],
   ["customers", "Data khách hàng", "♧"],
+  ["channels", "Kênh bán hàng", "◫"],
   ["contracts", "Hợp đồng", "▣"],
   ["inventory", "Kho hàng", "▥"],
   ["movements", "Xuất / nhập kho", "⇄"],
@@ -164,6 +186,9 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [salesSummary, setSalesSummary] = useState<SalesSummary[]>([]);
+  const [channelMonth, setChannelMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [channelPerformance, setChannelPerformance] = useState<ChannelPerformance[]>([]);
+  const [channelLoading, setChannelLoading] = useState(false);
   const [products, setProducts] = useState<InventoryProduct[]>([]);
   const [movements, setMovements] = useState<InventoryMovement[]>([]);
   const [items, setItems] = useState<any[]>([]);
@@ -208,6 +233,15 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
         .then((d) => setItems(d.items || []));
     }
   }, [view]);
+
+  useEffect(() => {
+    if (view !== "channels") return;
+    setChannelLoading(true);
+    fetch(`/api/channels?month=${encodeURIComponent(channelMonth)}`)
+      .then((response) => response.json())
+      .then((data) => setChannelPerformance(data.channels || []))
+      .finally(() => setChannelLoading(false));
+  }, [view, channelMonth]);
 
   const total = projects.reduce((sum, p) => sum + Number(p.value), 0);
   const weighted = projects.reduce((sum, p) => sum + (Number(p.value) * p.probability) / 100, 0);
@@ -328,7 +362,7 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
           <button className="notify" onClick={() => setView("overview")}> 
             ♢<b>{actionAlerts}</b>
           </button>
-          {view !== "customers" && (!["inventory", "movements"].includes(view) || canManageStock) && (
+          {!["customers", "channels"].includes(view) && (!["inventory", "movements"].includes(view) || canManageStock) && (
             <button
               className="add"
               onClick={() => {
@@ -459,7 +493,8 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
                   <tr>
                     <th>ĐƠN HÀNG / CƠ HỘI</th>
                     <th>KHÁCH HÀNG</th>
-                    <th>KÊNH BÁN / SẢN PHẨM</th>
+                    <th>KÊNH BÁN HÀNG</th>
+                    <th>SẢN PHẨM</th>
                     <th>PHỤ TRÁCH</th>
                     <th>GIAI ĐOẠN</th>
                     <th>GIÁ TRỊ</th>
@@ -478,7 +513,11 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
                         {p.contractor}
                         <small>{p.customer_phone} · {p.customer_type}</small>
                       </td>
-                      <td>{p.sales_channel}<small>{p.product}</small></td>
+                      <td><mark>{p.sales_channel}</mark></td>
+                      <td>
+                        <b>{p.items?.length ? `${p.items.length} mặt hàng` : p.product || "—"}</b>
+                        {p.items?.length > 0 && <small>{p.items.map((item) => `${item.product_name}: ${Number(item.quantity).toLocaleString("vi-VN")} ${item.unit}`).join(" · ")}</small>}
+                      </td>
                       <td>{p.owner}</td>
                       <td><mark className={"s" + p.probability}>{stageLabel(p.probability)}</mark></td>
                       <td><b>{money(Number(p.value))}</b></td>
@@ -500,6 +539,15 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
         )}
 
         {view === "customers" && <CustomersView customers={customers} />}
+
+        {view === "channels" && (
+          <ChannelView
+            month={channelMonth}
+            channels={channelPerformance}
+            loading={channelLoading}
+            onMonthChange={setChannelMonth}
+          />
+        )}
 
         {view === "contracts" && (
           <ContractsView
@@ -586,6 +634,76 @@ function CustomersView({ customers }: { customers: Customer[] }) {
             </tr>)}</tbody>
           </table>
           {!customers.length && <p className="empty">Chưa có data khách hàng. Khi tạo đơn hàng đầu tiên, khách sẽ tự động xuất hiện tại đây.</p>}
+        </div>
+      </section>
+    </>
+  );
+}
+
+function ChannelView({ month, channels, loading, onMonthChange }: {
+  month: string;
+  channels: ChannelPerformance[];
+  loading: boolean;
+  onMonthChange: (month: string) => void;
+}) {
+  const activeChannels = channels.filter((channel) => Number(channel.quote_count) > 0 || Number(channel.revenue) > 0);
+  const totalRevenue = channels.reduce((sum, channel) => sum + Number(channel.revenue), 0);
+  const totalQuotes = channels.reduce((sum, channel) => sum + Number(channel.quote_count), 0);
+  const totalSigned = channels.reduce((sum, channel) => sum + Number(channel.signed_count), 0);
+  const topChannel = activeChannels.reduce<ChannelPerformance | null>((best, channel) => {
+    if (!best) return channel;
+    if (Number(channel.revenue) !== Number(best.revenue)) return Number(channel.revenue) > Number(best.revenue) ? channel : best;
+    return Number(channel.quote_count) > Number(best.quote_count) ? channel : best;
+  }, null);
+  const maxRevenue = Math.max(1, ...activeChannels.map((channel) => Number(channel.revenue)));
+  const monthLabel = new Date(month + "-01T00:00:00").toLocaleDateString("vi-VN", { month: "long", year: "numeric" });
+
+  return (
+    <>
+      <section className="channel-summary">
+        <article><span>DOANH SỐ {monthLabel.toUpperCase()}</span><b>{short(totalRevenue)}</b><small>Chỉ tính hợp đồng đã ký trong tháng</small></article>
+        <article><span>ĐƠN / BÁO GIÁ MỚI</span><b>{totalQuotes}</b><small>Phân loại theo kênh khách đến</small></article>
+        <article><span>HỢP ĐỒNG ĐÃ KÝ</span><b>{totalSigned}</b><small>Được dùng để tính doanh số thực tế</small></article>
+        <article><span>KÊNH HIỆU QUẢ NHẤT</span><b>{topChannel?.sales_channel || "Chưa có"}</b><small>{topChannel ? money(Number(topChannel.revenue)) : "Chưa phát sinh dữ liệu"}</small></article>
+      </section>
+
+      <section className="channel-layout">
+        <div className="panel channel-ranking-panel">
+          <div className="panel-title">
+            <div><h3>Xếp hạng kênh bán hàng</h3><span>So sánh doanh số hợp đồng đã ký trong {monthLabel}</span></div>
+            <label className="month-filter">Chọn tháng<input type="month" value={month} onChange={(event) => { if (event.target.value) onMonthChange(event.target.value); }} /></label>
+          </div>
+          <div className="channel-ranking">
+            {loading ? <p className="empty">Đang tổng hợp dữ liệu...</p> : activeChannels.length ? activeChannels.map((channel, index) => (
+              <div key={channel.sales_channel}>
+                <i>{index + 1}</i>
+                <span><b>{channel.sales_channel}</b><small>{channel.quote_count} đơn/báo giá · {channel.signed_count} hợp đồng đã ký</small></span>
+                <u><em style={{ width: Math.max(3, Number(channel.revenue) / maxRevenue * 100) + "%" }} /></u>
+                <strong>{money(Number(channel.revenue))}</strong>
+              </div>
+            )) : <p className="empty">Tháng này chưa có đơn hàng hoặc doanh số theo kênh.</p>}
+          </div>
+        </div>
+      </section>
+
+      <section className="panel page-panel channel-table-panel">
+        <div className="panel-title"><div><h3>Tổng kết theo từng kênh</h3><span>Doanh số = tổng giá trị hợp đồng Đã ký có ngày ký trong tháng đã chọn</span></div></div>
+        <div className="data-table">
+          <table>
+            <thead><tr><th>KÊNH BÁN HÀNG</th><th>KHÁCH HÀNG</th><th>ĐƠN / BÁO GIÁ</th><th>GIÁ TRỊ DỰ KIẾN</th><th>HỢP ĐỒNG ĐÃ KÝ</th><th>DOANH SỐ THỰC TẾ</th><th>TỶ TRỌNG</th></tr></thead>
+            <tbody>{channels.map((channel) => {
+              const share = totalRevenue > 0 ? Number(channel.revenue) / totalRevenue * 100 : 0;
+              return <tr key={channel.sales_channel} className={Number(channel.revenue) > 0 ? "channel-has-revenue" : ""}>
+                <td><b>{channel.sales_channel}</b></td>
+                <td>{channel.customer_count}</td>
+                <td>{channel.quote_count}</td>
+                <td>{money(Number(channel.expected_value))}</td>
+                <td>{channel.signed_count}</td>
+                <td><b>{money(Number(channel.revenue))}</b></td>
+                <td><mark>{share.toFixed(1).replace(".0", "")}%</mark></td>
+              </tr>;
+            })}</tbody>
+          </table>
         </div>
       </section>
     </>
@@ -825,9 +943,9 @@ function Modal({ kind, editing, editingProduct, editingContract, users, products
             <>
               <label className="wide">Tên đơn hàng / cơ hội bán<input name="name" required defaultValue={editing?.name} placeholder="VD: Đơn cá nục cho quán A" /></label>
               <label>Mã đơn hàng<input name="code" required defaultValue={editing?.code || "DH-2026-"} /></label>
-              <label>Giá trị dự kiến<input name="value" type="number" min="0" defaultValue={editing?.value || 0} /></label>
+              <div className="order-price-note"><b>Giá tự động theo Kho hàng</b><span>Đơn giá được chốt theo ngày lập đơn</span></div>
               <CustomerFields editing={editing} checkReturn={!editing} />
-              <label>Sản phẩm hải sản<input name="product" list="seafood-products" defaultValue={editing?.product} placeholder="Chọn hoặc nhập sản phẩm" /><datalist id="seafood-products">{SEAFOOD_PRODUCTS.map((product) => <option key={product} value={product} />)}</datalist></label>
+              <OrderItemsFields editing={editing} products={products} />
               <label>Giai đoạn bán hàng<select name="probability" defaultValue={editing?.probability || 30}><option value="30">Khách mới / Quan tâm — 30%</option><option value="50">Đang báo giá — 50%</option><option value="80">Sắp chốt — 80%</option><option value="100">Đã chốt đơn — 100%</option></select></label>
               {director && <label>Phân công<select name="ownerId" defaultValue={editing?.owner_id}>{users.map((u) => <option key={u.id} value={u.id}>{u.full_name}</option>)}</select></label>}
               <label>Trạng thái<select name="status" defaultValue={editing?.status || "Khách mới / Quan tâm"}><option>Khách mới / Quan tâm</option><option>Đang báo giá</option><option>Chờ khách xác nhận</option><option>Đã chốt đơn</option><option>Đang chuẩn bị hàng</option><option>Đang giao hàng</option><option>Hoàn thành</option><option>Hủy</option></select></label>
@@ -920,6 +1038,105 @@ function Modal({ kind, editing, editingProduct, editingContract, users, products
           <button className="save" disabled={busy}>{busy ? "Đang lưu..." : "Lưu thông tin"}</button>
         </footer>
       </form>
+    </div>
+  );
+}
+
+type OrderItemDraft = {
+  key: string;
+  itemId?: number;
+  productId: string;
+  productName: string;
+  unit: string;
+  quantity: string;
+  unitPrice: number;
+  priceDate: string;
+};
+
+function OrderItemsFields({ editing, products }: { editing: Project | null; products: InventoryProduct[] }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [items, setItems] = useState<OrderItemDraft[]>(() => editing?.items?.length
+    ? editing.items.map((item) => ({
+        key: "saved-" + item.id,
+        itemId: item.id,
+        productId: String(item.product_id),
+        productName: item.product_name,
+        unit: item.unit,
+        quantity: String(Number(item.quantity)),
+        unitPrice: Number(item.unit_price),
+        priceDate: item.price_date,
+      }))
+    : [{ key: "new-0", productId: "", productName: "", unit: "kg", quantity: "", unitPrice: 0, priceDate: today }]);
+
+  const selectedIds = new Set(items.map((item) => item.productId).filter(Boolean));
+  const total = items.reduce((sum, item) => sum + (Number(item.quantity) || 0) * Number(item.unitPrice || 0), 0);
+
+  function changeProduct(key: string, productId: string) {
+    const product = products.find((candidate) => String(candidate.id) === productId);
+    setItems((current) => current.map((item) => {
+      if (item.key !== key) return item;
+      const keepSnapshot = Boolean(item.itemId && item.productId === productId);
+      return {
+        ...item,
+        itemId: keepSnapshot ? item.itemId : undefined,
+        productId,
+        productName: keepSnapshot ? item.productName : product?.name || "",
+        unit: keepSnapshot ? item.unit : product?.unit || "kg",
+        unitPrice: keepSnapshot ? item.unitPrice : Number(product?.sale_price || 0),
+        priceDate: keepSnapshot ? item.priceDate : today,
+      };
+    }));
+  }
+
+  function changeQuantity(key: string, quantity: string) {
+    setItems((current) => current.map((item) => item.key === key ? { ...item, quantity } : item));
+  }
+
+  function addItem() {
+    setItems((current) => [...current, {
+      key: `new-${Date.now()}-${current.length}`,
+      productId: "",
+      productName: "",
+      unit: "kg",
+      quantity: "",
+      unitPrice: 0,
+      priceDate: today,
+    }]);
+  }
+
+  function removeItem(key: string) {
+    setItems((current) => current.length === 1 ? current : current.filter((item) => item.key !== key));
+  }
+
+  const payload = items.map((item) => ({
+    itemId: item.itemId,
+    productId: Number(item.productId),
+    quantity: Number(item.quantity),
+  }));
+
+  return (
+    <div className="order-items wide">
+      <input type="hidden" name="itemsJson" value={JSON.stringify(payload)} />
+      <div className="order-items-head">
+        <span><b>Sản phẩm khách mua</b><small>Chọn nhiều loại, nhập số lượng; hệ thống lấy giá bán trong Kho hàng</small></span>
+        <button type="button" onClick={addItem} disabled={!products.length}>＋ Thêm sản phẩm</button>
+      </div>
+      {!products.length && <div className="form-hint">Chưa có hàng hóa. Hãy vào Kho hàng tạo sản phẩm và nhập giá bán trước.</div>}
+      <div className="order-item-labels"><span>SẢN PHẨM</span><span>SỐ LƯỢNG</span><span>ĐƠN GIÁ</span><span>THÀNH TIỀN</span><span></span></div>
+      {items.map((item) => {
+        const lineTotal = (Number(item.quantity) || 0) * Number(item.unitPrice || 0);
+        return <div className="order-item-row" key={item.key}>
+          <select required value={item.productId} onChange={(event) => changeProduct(item.key, event.target.value)}>
+            <option value="" disabled>Chọn loại hải sản</option>
+            {products.map((product) => <option key={product.id} value={product.id} disabled={selectedIds.has(String(product.id)) && item.productId !== String(product.id)}>{product.name}</option>)}
+          </select>
+          <label><input required type="number" min="0.001" step="0.001" value={item.quantity} onChange={(event) => changeQuantity(item.key, event.target.value)} placeholder="0" /><small>{item.unit}</small></label>
+          <span className={item.unitPrice > 0 ? "" : "missing-price"}><b>{money(item.unitPrice)}</b><small>Giá ngày {new Date(item.priceDate + "T00:00:00").toLocaleDateString("vi-VN")}</small></span>
+          <strong>{money(lineTotal)}</strong>
+          <button type="button" onClick={() => removeItem(item.key)} disabled={items.length === 1} aria-label="Xóa sản phẩm">×</button>
+        </div>;
+      })}
+      <div className="order-total"><span><small>GIÁ TRỊ ĐƠN HÀNG DỰ KIẾN</small><b>Tự động cộng từ {items.filter((item) => item.productId).length} sản phẩm</b></span><strong>{money(total)}</strong></div>
     </div>
   );
 }
