@@ -28,6 +28,7 @@ Website nội bộ quản lý đơn hàng, khách hàng, doanh số và công vi
 - Hệ thống tự bổ sung sẵn 10 mặt hàng chính nếu Kho đang thiếu: cá nục, cá bạc má, cá bã trầu, cá ngừ, cá thu, bạch tuộc, mực ống, mực trứng, mực khô và mực 1 nắng.
 - Mặt hàng được bổ sung có giá ban đầu bằng 0 và được đánh dấu “Cần cập nhật giá bán”; cần nhập giá trong Kho hàng trước khi đưa vào đơn.
 - Quản lý xuất kho, nhập kho, điều chỉnh tăng/giảm và tự động tính tồn kho.
+- Lưu riêng giá nhập theo từng ngày; tự so sánh với lần nhập trước bằng số tiền và phần trăm tăng/giảm (tăng màu đỏ, giảm màu xanh).
 - Theo dõi giá nhập, giá bán, lãi dự kiến và giá trị hàng tồn.
 - Phân loại hàng bán chạy, bán chậm theo lượng xuất trong 30 ngày.
 - Tự đề xuất số lượng nên nhập dựa trên sức bán, tồn hiện tại và mức tồn tối thiểu.

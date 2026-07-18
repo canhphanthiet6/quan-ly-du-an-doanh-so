@@ -5,7 +5,23 @@ import { ensureSchema, getPool, query } from "../../../../server/db";
 export async function GET() {
   const user = await getCurrentUser();
   if (!user) return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
-  const result = await query(`SELECT m.*,p.name product_name,p.sku,p.unit,u.full_name creator FROM inventory_movements m JOIN inventory_products p ON p.id=m.product_id LEFT JOIN users u ON u.id=m.created_by ORDER BY m.movement_date DESC,m.id DESC LIMIT 300`);
+  const result = await query(`
+    WITH import_history AS (
+      SELECT id,
+        LAG(unit_price) OVER (PARTITION BY product_id ORDER BY movement_date,id) AS previous_unit_price,
+        LAG(movement_date) OVER (PARTITION BY product_id ORDER BY movement_date,id) AS previous_price_date
+      FROM inventory_movements
+      WHERE movement_type='Nhập'
+    )
+    SELECT m.*,p.name product_name,p.sku,p.unit,u.full_name creator,
+      h.previous_unit_price,h.previous_price_date
+    FROM inventory_movements m
+    JOIN inventory_products p ON p.id=m.product_id
+    LEFT JOIN users u ON u.id=m.created_by
+    LEFT JOIN import_history h ON h.id=m.id
+    ORDER BY m.movement_date DESC,m.id DESC
+    LIMIT 300
+  `);
   return Response.json({ movements: result.rows, canManage: canManageInventory(user) });
 }
 
@@ -29,6 +45,7 @@ export async function POST(request: Request) {
     const nextStock = Number(product.rows[0].stock_qty) + (decrease ? -quantity : quantity);
     if (nextStock < 0) throw new Error("Số lượng xuất vượt quá tồn kho hiện tại");
     const unitPrice = Math.max(0, Number(data.unitPrice || 0));
+    if (movementType === "Nhập" && unitPrice <= 0) throw new Error("Phiếu nhập cần có giá nhập lớn hơn 0 để theo dõi lịch sử giá");
     await client.query(`INSERT INTO inventory_movements(product_id,movement_type,quantity,unit_price,movement_date,note,created_by) VALUES($1,$2,$3,$4,$5,$6,$7)`, [
       productId, movementType, quantity, unitPrice, data.movementDate || new Date().toISOString().slice(0, 10), data.note || "", user.id,
     ]);

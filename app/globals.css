@@ -40,3 +40,6 @@ html{font-size:16px}body{font-family:var(--font-geist-sans),"Segoe UI",Arial,san
 
 /* Signed and cancelled order states */
 .project-completed{background:#eaf8f0!important}.project-completed td{border-color:#cce9d9}.project-completed td:first-child{box-shadow:inset 4px 0 #2c9a6d}.project-completed td>b,.project-completed td:first-child>b{color:#1f7654}.project-cancelled{background:#fff0ef!important}.project-cancelled td{border-color:#f0cfcb}.project-cancelled td:first-child{box-shadow:inset 4px 0 #cf4a40}.project-cancelled td>b,.project-cancelled td:first-child>b{color:#b43e35}
+
+/* Daily import-price comparison */
+.movement-panel .data-table table{min-width:1180px}.price-up,.price-down,.price-same{display:grid;gap:3px;min-width:150px}.price-up b{color:#c33f35}.price-down b{color:#23815d}.price-same b{color:#63777d}.price-up small,.price-down small,.price-same small{font-size:8px;color:#72858b}.price-first{display:inline-block;background:#edf3f4;color:#506a72;border-radius:12px;padding:5px 8px;font-size:8.5px;white-space:nowrap}.price-na{color:#9aa7aa}

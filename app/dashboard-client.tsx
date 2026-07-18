@@ -69,6 +69,8 @@ type InventoryMovement = {
   movement_type: string;
   quantity: number;
   unit_price: number;
+  previous_unit_price: number | null;
+  previous_price_date: string | null;
   movement_date: string;
   note: string;
   creator: string;
@@ -920,15 +922,29 @@ function InventoryView({ products, canManage, onAdd, onEdit, onMovement }: {
 
 function MovementView({ movements, canManage, onAdd }: { movements: InventoryMovement[]; canManage: boolean; onAdd: () => void }) {
   const quantity = (value: number) => new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 3 }).format(Number(value) || 0);
+  const priceComparison = (movement: InventoryMovement) => {
+    if (movement.movement_type !== "Nhập") return <span className="price-na">—</span>;
+    if (movement.previous_unit_price === null || movement.previous_unit_price === undefined) return <span className="price-first">Lần nhập đầu tiên</span>;
+    const current = Number(movement.unit_price);
+    const previous = Number(movement.previous_unit_price);
+    const difference = current - previous;
+    const percent = previous > 0 ? difference / previous * 100 : 0;
+    const className = difference > 0 ? "price-up" : difference < 0 ? "price-down" : "price-same";
+    const sign = difference > 0 ? "+" : difference < 0 ? "−" : "";
+    return <span className={className}>
+      <b>{sign}{money(Math.abs(difference))} ({sign}{Math.abs(percent).toLocaleString("vi-VN", { maximumFractionDigits: 1 })}%)</b>
+      <small>Trước: {money(previous)} · {movement.previous_price_date ? new Date(movement.previous_price_date).toLocaleDateString("vi-VN") : "—"}</small>
+    </span>;
+  };
   return (
-    <section className="panel page-panel">
-      <div className="panel-title"><div><h3>Lịch sử xuất / nhập kho</h3><span>Tất cả giao dịch nhập, xuất và điều chỉnh tồn kho</span></div>{canManage && <button onClick={onAdd}>＋ Tạo phiếu kho</button>}</div>
+    <section className="panel page-panel movement-panel">
+      <div className="panel-title"><div><h3>Lịch sử xuất / nhập kho</h3><span>Mỗi lần nhập giữ giá theo ngày và tự so sánh với lần nhập trước</span></div>{canManage && <button onClick={onAdd}>＋ Tạo phiếu kho</button>}</div>
       <div className="data-table">
         <table>
-          <thead><tr><th>NGÀY</th><th>LOẠI PHIẾU</th><th>HÀNG HÓA</th><th>SỐ LƯỢNG</th><th>ĐƠN GIÁ</th><th>THÀNH TIỀN</th><th>NGƯỜI TẠO / GHI CHÚ</th></tr></thead>
+          <thead><tr><th>NGÀY</th><th>LOẠI PHIẾU</th><th>HÀNG HÓA</th><th>SỐ LƯỢNG</th><th>ĐƠN GIÁ THEO NGÀY</th><th>SO VỚI LẦN NHẬP TRƯỚC</th><th>THÀNH TIỀN</th><th>NGƯỜI TẠO / GHI CHÚ</th></tr></thead>
           <tbody>{movements.map((m) => {
             const isOut = m.movement_type === "Xuất" || m.movement_type === "Điều chỉnh giảm";
-            return <tr key={m.id}><td>{new Date(m.movement_date).toLocaleDateString("vi-VN")}</td><td><mark className={isOut ? "move-out" : "move-in"}>{m.movement_type}</mark></td><td><b>{m.product_name}</b><small>{m.sku}</small></td><td><strong>{isOut ? "−" : "+"}{quantity(m.quantity)} {m.unit}</strong></td><td>{money(Number(m.unit_price))}</td><td><b>{money(Number(m.unit_price) * Number(m.quantity))}</b></td><td>{m.creator}<small>{m.note}</small></td></tr>;
+            return <tr key={m.id}><td>{new Date(m.movement_date).toLocaleDateString("vi-VN")}</td><td><mark className={isOut ? "move-out" : "move-in"}>{m.movement_type}</mark></td><td><b>{m.product_name}</b><small>{m.sku}</small></td><td><strong>{isOut ? "−" : "+"}{quantity(m.quantity)} {m.unit}</strong></td><td><b>{money(Number(m.unit_price))}</b><small>Giá ngày {new Date(m.movement_date).toLocaleDateString("vi-VN")}</small></td><td>{priceComparison(m)}</td><td><b>{money(Number(m.unit_price) * Number(m.quantity))}</b></td><td>{m.creator}<small>{m.note}</small></td></tr>;
           })}</tbody>
         </table>
         {!movements.length && <p className="empty">Chưa có giao dịch xuất nhập kho.</p>}
