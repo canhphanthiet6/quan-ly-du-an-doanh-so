@@ -71,3 +71,38 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     client.release();
   }
 }
+
+export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const actor = await getCurrentUser();
+  if (!actor || !canManageUsers(actor)) return Response.json({ error: "Không có quyền xóa tài khoản" }, { status: 403 });
+  const { id } = await params;
+  const userId = Number(id);
+  if (!userId) return Response.json({ error: "Tài khoản không hợp lệ" }, { status: 400 });
+  if (actor.id === userId) return Response.json({ error: "Không thể tự xóa tài khoản đang đăng nhập" }, { status: 400 });
+  await ensureSchema();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const result = await client.query<{ id: number; username: string; full_name: string; role: Role }>("SELECT id,username,full_name,role FROM users WHERE id=$1 FOR UPDATE", [userId]);
+    const target = result.rows[0];
+    if (!target || target.username.startsWith("deleted-")) throw new Error("Không tìm thấy tài khoản");
+    if (target.role === "director") throw new Error("Không thể xóa tài khoản Giám đốc");
+    await client.query("UPDATE users SET active=FALSE,username=$1,updated_at=NOW() WHERE id=$2", [`deleted-${userId}-${target.username}`, userId]);
+    await client.query("DELETE FROM sessions WHERE user_id=$1", [userId]);
+    await writeAudit(client, actor, {
+      action: "USER_DELETE",
+      entityType: "user",
+      entityId: userId,
+      description: `Xóa tài khoản nhân sự nghỉ việc: ${target.full_name}`,
+      metadata: { username: target.username, role: target.role, preservedHistory: true },
+      ...requestAuditMetadata(request),
+    });
+    await client.query("COMMIT");
+    return Response.json({ ok: true });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    return Response.json({ error: error instanceof Error ? error.message : "Không thể xóa tài khoản" }, { status: 400 });
+  } finally {
+    client.release();
+  }
+}

@@ -35,3 +35,42 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     client.release();
   }
 }
+
+export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const user = await getCurrentUser();
+  if (!user || !canManageInventory(user)) return Response.json({ error: "Không có quyền xóa hàng hóa" }, { status: 403 });
+  const { id } = await params;
+  await ensureSchema();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const result = await client.query<{ id: number; sku: string; name: string; stock_qty: string }>("SELECT id,sku,name,stock_qty::text FROM inventory_products WHERE id=$1 FOR UPDATE", [id]);
+    const product = result.rows[0];
+    if (!product) throw new Error("Không tìm thấy hàng hóa");
+    const references = await client.query<{ movement_count: string; order_count: string }>(`
+      SELECT
+        (SELECT COUNT(*)::text FROM inventory_movements WHERE product_id=$1) movement_count,
+        (SELECT COUNT(*)::text FROM project_items WHERE product_id=$1) order_count
+    `, [id]);
+    const movementCount = Number(references.rows[0].movement_count);
+    const orderCount = Number(references.rows[0].order_count);
+    if (orderCount > 0) throw new Error(`Không thể xóa vì mặt hàng đã nằm trong ${orderCount} đơn hàng. Hãy ngừng sử dụng mặt hàng này thay vì xóa.`);
+    if (movementCount > 0) throw new Error(`Mặt hàng còn ${movementCount} phiếu nhập/xuất. Hãy xóa các phiếu nhập sai trước rồi xóa mặt hàng.`);
+    await client.query("DELETE FROM inventory_products WHERE id=$1", [id]);
+    await writeAudit(client, user, {
+      action: "DELETE",
+      entityType: "inventory_product",
+      entityId: id,
+      description: `Xóa hàng hóa nhập nhầm ${product.sku} · ${product.name}`,
+      metadata: { stockQty: product.stock_qty, movementCount, orderCount },
+      ...requestAuditMetadata(request),
+    });
+    await client.query("COMMIT");
+    return Response.json({ ok: true });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    return Response.json({ error: error instanceof Error ? error.message : "Không thể xóa hàng hóa" }, { status: 400 });
+  } finally {
+    client.release();
+  }
+}

@@ -6,7 +6,7 @@ export async function GET(){
   const u=await getCurrentUser();
   if(!u||!canManageUsers(u))return Response.json({error:"Không có quyền xem quản trị nhân sự"},{status:403});
   await ensureSchema();
-  const r=await getPool().query<{id:number;username:string;full_name:string;role:Role;active:boolean;must_change_password:boolean;last_login_at:string;password_changed_at:string;created_at:string}>("SELECT id,username,full_name,role,active,must_change_password,last_login_at,password_changed_at,created_at FROM users ORDER BY CASE role WHEN 'director' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END,id");
+  const r=await getPool().query<{id:number;username:string;full_name:string;role:Role;active:boolean;must_change_password:boolean;last_login_at:string;password_changed_at:string;created_at:string}>("SELECT id,username,full_name,role,active,must_change_password,last_login_at,password_changed_at,created_at FROM users WHERE username NOT LIKE 'deleted-%' ORDER BY CASE role WHEN 'director' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END,id");
   return Response.json({users:r.rows.map(x=>({...x,role_label:roleLabels[x.role]}))});
 }
 

@@ -355,6 +355,40 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
     await loadCore();
   }
 
+  async function deleteProduct(product: InventoryProduct) {
+    const confirmed = window.confirm(`Xóa mặt hàng ${product.name} (${product.sku})? Chỉ nên xóa khi đây là dòng tạo nhầm.`);
+    if (!confirmed) return;
+    setBusy(true);
+    setError("");
+    const response = await fetch(`/api/inventory/${product.id}`, { method: "DELETE" });
+    const data = await response.json();
+    setBusy(false);
+    if (!response.ok) {
+      setError(data.error || "Không thể xóa hàng hóa");
+      window.alert(data.error || "Không thể xóa hàng hóa");
+      return;
+    }
+    setFlash(`Đã xóa mặt hàng nhập nhầm ${product.name}.`);
+    await loadCore();
+  }
+
+  async function deleteUserAccount(target: any) {
+    const confirmed = window.confirm(`Xóa tài khoản ${target.full_name} (@${target.username}) khỏi danh sách nhân sự? Tài khoản sẽ bị đăng xuất và không thể đăng nhập lại. Lịch sử công việc vẫn được giữ.`);
+    if (!confirmed) return;
+    setBusy(true);
+    setError("");
+    const response = await fetch(`/api/users/${target.id}`, { method: "DELETE" });
+    const data = await response.json();
+    setBusy(false);
+    if (!response.ok) {
+      setError(data.error || "Không thể xóa tài khoản");
+      window.alert(data.error || "Không thể xóa tài khoản");
+      return;
+    }
+    setFlash(`Đã xóa tài khoản nhân sự nghỉ việc ${target.full_name}; lịch sử cũ vẫn được lưu.`);
+    await loadCore();
+  }
+
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setBusy(true);
@@ -674,7 +708,9 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
             canManage={canManageStock}
             onAdd={() => { setEditingProduct(null); setModal("product"); }}
             onEdit={(product) => { setEditingProduct(product); setModal("product"); }}
+            onDelete={deleteProduct}
             onMovement={() => setModal("movement")}
+            busy={busy}
           />
         )}
 
@@ -692,6 +728,8 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
             canAdd={canManageSecurity}
             onAdd={() => setModal("user")}
             onManage={(user) => { setManagingUser(user); setModal("manage-user"); }}
+            onDelete={deleteUserAccount}
+            busy={busy}
           />
         )}
         {view === "audit" && <AuditView logs={auditLogs} />}
@@ -860,12 +898,14 @@ function ContractsView({ contracts, salesSummary, director, onAdd, onEdit }: {
   );
 }
 
-function InventoryView({ products, canManage, onAdd, onEdit, onMovement }: {
+function InventoryView({ products, canManage, onAdd, onEdit, onDelete, onMovement, busy }: {
   products: InventoryProduct[];
   canManage: boolean;
   onAdd: () => void;
   onEdit: (product: InventoryProduct) => void;
+  onDelete: (product: InventoryProduct) => void;
   onMovement: () => void;
+  busy: boolean;
 }) {
   const currentMonth = new Date().getMonth() + 1;
   const outOfStock = products.filter((p) => Number(p.stock_qty) <= 0);
@@ -926,7 +966,7 @@ function InventoryView({ products, canManage, onAdd, onEdit, onMovement }: {
                     <td><mark className={speedClass}>{p.sales_status}</mark><small>Đã xuất {quantity(p.out_30d)} {p.unit}</small></td>
                     <td>{p.peak_months ? <><b>Tháng {p.peak_months}</b>{isMonthInSeason(p.peak_months) && <mark className="season-now">ĐÚNG MÙA</mark>}<small>{p.season_note}</small></> : <span className="muted-text">Chưa cập nhật</span>}</td>
                     <td>{Number(p.suggested_qty) > 0 ? <b className="suggest-buy">Nên nhập {quantity(p.suggested_qty)} {p.unit}</b> : <span className="stock-ok">Tồn kho phù hợp</span>}</td>
-                    <td>{canManage && <button onClick={() => onEdit(p)}>Sửa</button>}</td>
+                    <td>{canManage && <div className="row-actions"><button onClick={() => onEdit(p)}>Sửa</button><button className="danger-button" disabled={busy} onClick={() => onDelete(p)}>Xóa</button></div>}</td>
                   </tr>
                 );
               })}
@@ -1013,7 +1053,7 @@ function ModuleView({ kind, items, canAdd, onAdd }: { kind: string; items: any[]
   );
 }
 
-function UsersView({ users, currentUser, canAdd, onAdd, onManage }: { users: any[]; currentUser: User; canAdd: boolean; onAdd: () => void; onManage: (user: any) => void }) {
+function UsersView({ users, currentUser, canAdd, busy, onAdd, onManage, onDelete }: { users: any[]; currentUser: User; canAdd: boolean; busy: boolean; onAdd: () => void; onManage: (user: any) => void; onDelete: (user: any) => void }) {
   const permissionRows = [
     ["Giám đốc", "Toàn bộ dữ liệu", "Duyệt hợp đồng, sửa mọi đơn, phân quyền, khóa tài khoản"],
     ["Admin", "Toàn bộ dữ liệu vận hành", "Tạo tài khoản thường, quản lý kho, sao lưu và xem nhật ký"],
@@ -1042,7 +1082,7 @@ function UsersView({ users, currentUser, canAdd, onAdd, onManage }: { users: any
                 <small>{u.active ? (u.must_change_password ? "Phải đổi mật khẩu khi đăng nhập" : "Đang hoạt động") : "Đã khóa tài khoản"}</small>
                 <small>Đăng nhập gần nhất: {u.last_login_at ? dateTime(u.last_login_at) : "Chưa đăng nhập"}</small>
               </div>
-              {(currentUser.role === "director" || u.role !== "director") && <button onClick={() => onManage(u)}>Quản lý</button>}
+              {(currentUser.role === "director" || u.role !== "director") && <div className="user-actions"><button onClick={() => onManage(u)}>Quản lý</button>{u.id !== currentUser.id && u.role !== "director" && <button className="delete-user" disabled={busy} onClick={() => onDelete(u)}>Xóa</button>}</div>}
             </article>
           ))}
         </div>
@@ -1060,7 +1100,7 @@ function UsersView({ users, currentUser, canAdd, onAdd, onManage }: { users: any
 function AuditView({ logs }: { logs: AuditLog[] }) {
   const labels: Record<string, string> = {
     CREATE: "Thêm mới", UPDATE: "Cập nhật", DELETE: "Xóa", APPROVE: "Phê duyệt", EXPORT: "Xuất file",
-    USER_CREATE: "Tạo tài khoản", USER_UPDATE: "Sửa tài khoản", ACCOUNT_LOCK: "Khóa tài khoản",
+    USER_CREATE: "Tạo tài khoản", USER_UPDATE: "Sửa tài khoản", USER_DELETE: "Xóa tài khoản", ACCOUNT_LOCK: "Khóa tài khoản",
     ACCOUNT_UNLOCK: "Mở khóa", PASSWORD_RESET: "Đặt lại mật khẩu", PASSWORD_CHANGE: "Đổi mật khẩu",
     LOGIN: "Đăng nhập", LOGIN_FAILED: "Đăng nhập lỗi", BACKUP_CREATE: "Tạo sao lưu", BACKUP_DOWNLOAD: "Tải sao lưu",
     SYSTEM_SETUP: "Thiết lập",
