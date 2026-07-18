@@ -34,3 +34,6 @@ html{font-size:16px}body{font-family:var(--font-geist-sans),"Segoe UI",Arial,san
 
 @media(max-width:1000px){.backup-summary{grid-template-columns:1fr 1fr}.security-people{grid-template-columns:1fr 1fr}}
 @media(max-width:760px){.backup-summary{grid-template-columns:1fr;margin-left:15px;margin-right:15px}.security-people{grid-template-columns:1fr}.permission-panel{margin-top:15px}}
+
+/* Order ownership, customer export and destructive actions */
+.row-actions{display:flex;align-items:center;gap:6px;white-space:nowrap}.row-actions .danger-button{border-color:#efc8c4;background:#fff6f5;color:#b43e35}.row-actions .danger-button:disabled{opacity:.5;cursor:wait}.export-button{margin-left:auto;display:inline-flex;align-items:center;justify-content:center;height:38px;border-radius:7px;padding:0 14px;background:var(--teal);color:#fff;text-decoration:none;font-size:10.5px;font-weight:700}.audit-export{background:#e6eef6!important;color:#365f87}

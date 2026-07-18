@@ -29,6 +29,7 @@ type Project = {
   customer_phone: string;
   customer_type: string;
   sales_channel: string;
+  customer_area: string;
   customer_id: number;
   product: string;
   owner_id: number;
@@ -79,6 +80,7 @@ type Customer = {
   phone: string;
   customer_type: string;
   sales_channel: string;
+  address: string;
   contact_count: number;
   first_contact_at: string;
   last_contact_at: string;
@@ -280,8 +282,9 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
     if (view === "backups") fetch("/api/backups").then((r) => r.json()).then((d) => setBackups(d.backups || []));
   }, [view]);
 
-  const total = projects.reduce((sum, p) => sum + Number(p.value), 0);
-  const weighted = projects.reduce((sum, p) => sum + (Number(p.value) * p.probability) / 100, 0);
+  const activeProjects = projects.filter((p) => !["Hủy", "Báo giá hết hiệu lực"].includes(p.status));
+  const total = activeProjects.reduce((sum, p) => sum + Number(p.value), 0);
+  const weighted = activeProjects.reduce((sum, p) => sum + (Number(p.value) * p.probability) / 100, 0);
   const signedRevenue = contracts
     .filter((contract) => contract.status === "Đã ký")
     .reduce((sum, contract) => sum + Number(contract.contract_value), 0);
@@ -313,6 +316,22 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
     const refreshed = await fetch("/api/backups").then((r) => r.json());
     setBackups(refreshed.backups || []);
     setFlash("Đã tạo bản sao lưu dữ liệu thành công.");
+  }
+
+  async function deleteProject(project: Project) {
+    const confirmed = window.confirm(`Xóa ${project.code} · ${project.name}? Dữ liệu này không thể khôi phục từ màn hình.`);
+    if (!confirmed) return;
+    setBusy(true);
+    setError("");
+    const response = await fetch(`/api/projects/${project.id}`, { method: "DELETE" });
+    const data = await response.json();
+    setBusy(false);
+    if (!response.ok) {
+      setError(data.error || "Không thể xóa đơn hàng");
+      return;
+    }
+    setFlash(`Đã xóa ${project.code} · ${project.name}.`);
+    await loadCore();
   }
 
   async function submit(e: FormEvent<HTMLFormElement>) {
@@ -559,6 +578,7 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
                   <tr>
                     <th>ĐƠN HÀNG / CƠ HỘI</th>
                     <th>KHÁCH HÀNG</th>
+                    <th>KHU VỰC</th>
                     <th>KÊNH BÁN HÀNG</th>
                     <th>SẢN PHẨM</th>
                     <th>PHỤ TRÁCH</th>
@@ -579,6 +599,7 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
                         {p.contractor}
                         <small>{p.customer_phone} · {p.customer_type}</small>
                       </td>
+                      <td>{p.customer_area || "—"}</td>
                       <td><mark>{p.sales_channel}</mark></td>
                       <td>
                         <b>{p.items?.length ? `${p.items.length} mặt hàng` : p.product || "—"}</b>
@@ -592,9 +613,10 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
                         <small>{p.next_action}</small>
                       </td>
                       <td>
-                        {canEdit(p) && (
+                        {canEdit(p) && <div className="row-actions">
                           <button onClick={() => { setEditing(p); setModal("project"); }}>Sửa</button>
-                        )}
+                          <button className="danger-button" disabled={busy} onClick={() => deleteProject(p)}>Xóa</button>
+                        </div>}
                       </td>
                     </tr>
                   ))}
@@ -691,12 +713,13 @@ function CustomersView({ customers }: { customers: Customer[] }) {
         <article><span>DOANH SỐ ĐÃ KÝ</span><b>{short(totalRevenue)}</b><small>Tổng hợp từ hợp đồng</small></article>
       </section>
       <section className="panel page-panel customer-panel">
-        <div className="panel-title"><div><h3>Data khách hàng</h3><span>Khách tự động được tạo khi nhập báo giá hoặc đơn hàng mới</span></div></div>
+        <div className="panel-title"><div><h3>Data khách hàng</h3><span>Khách tự động được tạo khi nhập báo giá hoặc đơn hàng mới</span></div><a className="export-button" href="/api/customers/export">↓ Xuất Excel</a></div>
         <div className="data-table">
           <table>
-            <thead><tr><th>KHÁCH HÀNG</th><th>NGÀY LƯU DATA</th><th>PHÂN LOẠI</th><th>KÊNH BÁN</th><th>LẦN LIÊN HỆ</th><th>ĐƠN / BÁO GIÁ</th><th>HỢP ĐỒNG</th><th>DOANH SỐ</th><th>SALE PHỤ TRÁCH</th><th>LẦN GẦN NHẤT</th></tr></thead>
+            <thead><tr><th>KHÁCH HÀNG</th><th>KHU VỰC / ĐỊA CHỈ</th><th>NGÀY LƯU DATA</th><th>PHÂN LOẠI</th><th>KÊNH BÁN</th><th>LẦN LIÊN HỆ</th><th>ĐƠN / BÁO GIÁ</th><th>HỢP ĐỒNG</th><th>DOANH SỐ</th><th>SALE PHỤ TRÁCH</th><th>LẦN GẦN NHẤT</th></tr></thead>
             <tbody>{customers.map((c) => <tr key={c.id} className={Number(c.contact_count) > 1 ? "returning-customer" : ""}>
               <td><b>{c.name}</b><small>{c.phone}</small></td>
+              <td>{c.address || "—"}</td>
               <td><b>{dateTime(c.created_at)}</b><small>Thời điểm tự động lưu</small></td>
               <td><mark>{c.customer_type}</mark></td>
               <td>{c.sales_channel}</td>
@@ -1000,7 +1023,7 @@ function UsersView({ users, currentUser, canAdd, onAdd, onManage }: { users: any
 
 function AuditView({ logs }: { logs: AuditLog[] }) {
   const labels: Record<string, string> = {
-    CREATE: "Thêm mới", UPDATE: "Cập nhật", DELETE: "Xóa", APPROVE: "Phê duyệt",
+    CREATE: "Thêm mới", UPDATE: "Cập nhật", DELETE: "Xóa", APPROVE: "Phê duyệt", EXPORT: "Xuất file",
     USER_CREATE: "Tạo tài khoản", USER_UPDATE: "Sửa tài khoản", ACCOUNT_LOCK: "Khóa tài khoản",
     ACCOUNT_UNLOCK: "Mở khóa", PASSWORD_RESET: "Đặt lại mật khẩu", PASSWORD_CHANGE: "Đổi mật khẩu",
     LOGIN: "Đăng nhập", LOGIN_FAILED: "Đăng nhập lỗi", BACKUP_CREATE: "Tạo sao lưu", BACKUP_DOWNLOAD: "Tải sao lưu",
@@ -1085,7 +1108,7 @@ function Modal({ kind, editing, editingProduct, editingContract, managingUser, u
               <OrderItemsFields editing={editing} products={products} />
               <label>Giai đoạn bán hàng<select name="probability" defaultValue={editing?.probability || 30}><option value="30">Khách mới / Quan tâm — 30%</option><option value="50">Đang báo giá — 50%</option><option value="80">Sắp chốt — 80%</option><option value="100">Đã chốt đơn — 100%</option></select></label>
               {director && <label>Phân công<select name="ownerId" defaultValue={editing?.owner_id}>{users.map((u) => <option key={u.id} value={u.id}>{u.full_name}</option>)}</select></label>}
-              <label>Trạng thái<select name="status" defaultValue={editing?.status || "Khách mới / Quan tâm"}><option>Khách mới / Quan tâm</option><option>Đang báo giá</option><option>Chờ khách xác nhận</option><option>Đã chốt đơn</option><option>Đang chuẩn bị hàng</option><option>Đang giao hàng</option><option>Hoàn thành</option><option>Hủy</option></select></label>
+              <label>Trạng thái<select name="status" defaultValue={editing?.status || "Khách mới / Quan tâm"}><option>Khách mới / Quan tâm</option><option>Đang báo giá</option><option>Chờ khách xác nhận</option><option>Báo giá hết hiệu lực</option><option>Đã chốt đơn</option><option>Đang chuẩn bị hàng</option><option>Đang giao hàng</option><option>Hoàn thành</option><option>Hủy</option></select></label>
               <label>Hạn xử lý / ngày giao<input name="deadline" type="date" defaultValue={editing?.deadline?.slice(0, 10)} /></label>
               <label className="wide">Bước tiếp theo<input name="nextAction" defaultValue={editing?.next_action} placeholder="Gọi xác nhận, chuẩn bị hàng, giao hàng..." /></label>
             </>
@@ -1324,6 +1347,7 @@ function CustomerFields({ editing, checkReturn }: { editing: Project | null; che
       <label>Số điện thoại<input name="customerPhone" type="tel" required value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="VD: 0901234567" /></label>
       <label>Loại khách hàng<select name="customerType" defaultValue={editing?.customer_type || "Khách lẻ"}><option>Khách lẻ</option><option>Quán ăn / Nhà hàng</option><option>Đại lý</option><option>Nhóm mua chung</option><option>Doanh nghiệp</option><option>Khác</option></select></label>
       <label>Kênh bán hàng<select name="salesChannel" defaultValue={editing?.sales_channel || "Trực tiếp"}><option>Trực tiếp</option><option>Facebook</option><option>Zalo</option><option>TikTok</option><option>Khách giới thiệu</option><option>Khách cũ quay lại</option><option>Điện thoại</option><option>Khác</option></select></label>
+      <label className="wide">Khu vực giao hàng / địa chỉ khách<input name="customerArea" required defaultValue={editing?.customer_area || ""} placeholder="VD: Phường 5, Gò Vấp, TP.HCM hoặc xã Hàm Thắng, Lâm Đồng" /></label>
       {match && <div className="customer-match wide"><b>Khách hàng cũ đã được nhận diện</b><span>{match.customer.name} · {match.customer.phone}</span><strong>Đang quay lại lần {match.nextReturnNumber}</strong><small>Lần gần nhất: {new Date(match.customer.last_contact_at).toLocaleDateString("vi-VN")} · Sale phụ trách: {match.customer.owner}</small></div>}
     </>
   );

@@ -37,8 +37,8 @@ export async function POST(request: Request) {
     await client.query("BEGIN");
     const customerInfo = await saveCustomer(client, data, user.id, ownerId, true);
     const orderDetail = await prepareOrderItems(client, data.itemsJson);
-    const result = await client.query(`INSERT INTO projects(code,name,contractor,customer_phone,customer_type,sales_channel,customer_id,product,owner_id,probability,status,value,deadline,next_action,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`, [
-      data.code, data.name, String(data.customerName || "").trim(), String(data.customerPhone || "").trim(), data.customerType || "Khách lẻ", data.salesChannel || "Trực tiếp", customerInfo.id,
+    const result = await client.query(`INSERT INTO projects(code,name,contractor,customer_phone,customer_type,sales_channel,customer_area,customer_id,product,owner_id,probability,status,value,deadline,next_action,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`, [
+      data.code, data.name, String(data.customerName || "").trim(), String(data.customerPhone || "").trim(), data.customerType || "Khách lẻ", data.salesChannel || "Trực tiếp", String(data.customerArea || "").trim(), customerInfo.id,
       orderDetail.summary, ownerId, Number(data.probability || 30), data.status || "Khách mới / Quan tâm", orderDetail.total, data.deadline || null, data.nextAction || "", user.id,
     ]);
     await replaceOrderItems(client, result.rows[0].id, orderDetail.items);

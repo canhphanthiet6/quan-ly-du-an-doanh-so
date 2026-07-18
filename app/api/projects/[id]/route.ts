@@ -20,8 +20,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     await client.query("BEGIN");
     const customerInfo = await saveCustomer(client, data, user.id, ownerId, false);
     const orderDetail = await prepareOrderItems(client, data.itemsJson, Number(id));
-    await client.query(`UPDATE projects SET name=COALESCE($1,name),contractor=$2,customer_phone=$3,customer_type=$4,sales_channel=$5,customer_id=$6,product=COALESCE($7,product),owner_id=$8,probability=COALESCE($9,probability),status=COALESCE($10,status),value=COALESCE($11,value),deadline=COALESCE($12,deadline),next_action=COALESCE($13,next_action),updated_at=NOW(),approved_by=CASE WHEN $14 THEN $15 ELSE approved_by END WHERE id=$16`, [
-      data.name || null, String(data.customerName || "").trim(), String(data.customerPhone || "").trim(), data.customerType || "Khách lẻ", data.salesChannel || "Trực tiếp", customerInfo.id,
+    await client.query(`UPDATE projects SET name=COALESCE($1,name),contractor=$2,customer_phone=$3,customer_type=$4,sales_channel=$5,customer_area=$6,customer_id=$7,product=COALESCE($8,product),owner_id=$9,probability=COALESCE($10,probability),status=COALESCE($11,status),value=COALESCE($12,value),deadline=COALESCE($13,deadline),next_action=COALESCE($14,next_action),updated_at=NOW(),approved_by=CASE WHEN $15 THEN $16 ELSE approved_by END WHERE id=$17`, [
+      data.name || null, String(data.customerName || "").trim(), String(data.customerPhone || "").trim(), data.customerType || "Khách lẻ", data.salesChannel || "Trực tiếp", String(data.customerArea || "").trim(), customerInfo.id,
       orderDetail.summary, ownerId, data.probability ? Number(data.probability) : null, data.status || null, orderDetail.total,
       data.deadline || null, data.nextAction || null, canManageAll(user), user.id, id,
     ]);
@@ -51,11 +51,15 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   const own = await query<{ owner_id: number; created_by: number; code: string; name: string; value: string }>("SELECT owner_id,created_by,code,name,value::text FROM projects WHERE id=$1", [id]);
   const project = own.rows[0];
   if (!project) return Response.json({ error: "Không tìm thấy" }, { status: 404 });
-  if (!canManageAll(user) && project.owner_id !== user.id && project.created_by !== user.id) return Response.json({ error: "Bạn không được xóa đơn hàng của người khác" }, { status: 403 });
+  const ownsProject = project.owner_id === user.id || project.created_by === user.id;
+  if (user.role !== "director" && !ownsProject) return Response.json({ error: "Bạn chỉ được xóa đơn hàng do mình tạo hoặc được phân công" }, { status: 403 });
   await ensureSchema();
   const client = await getPool().connect();
   try {
     await client.query("BEGIN");
+    const signed = await client.query("SELECT 1 FROM contracts WHERE project_id=$1 AND status='Đã ký' LIMIT 1", [id]);
+    if (signed.rows[0]) throw new Error("Không thể xóa báo giá đã có hợp đồng ký. Hãy chuyển hợp đồng sang Hủy trước.");
+    await client.query("DELETE FROM contracts WHERE project_id=$1", [id]);
     await client.query("DELETE FROM projects WHERE id=$1", [id]);
     await writeAudit(client, user, {
       action: "DELETE",

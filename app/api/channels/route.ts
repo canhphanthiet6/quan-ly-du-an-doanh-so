@@ -29,6 +29,7 @@ export async function GET(request: Request) {
       FROM projects
       WHERE created_at >= $1::DATE
         AND created_at < $1::DATE + INTERVAL '1 month'
+        AND status NOT IN ('Hủy','Báo giá hết hiệu lực')
       GROUP BY 1
     ),
     signed_totals AS (

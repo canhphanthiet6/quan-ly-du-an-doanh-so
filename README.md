@@ -11,7 +11,9 @@ Website nội bộ quản lý đơn hàng, khách hàng, doanh số và công vi
 - Đơn giá tự lấy từ giá bán hiện tại trong Kho hàng, tự tính thành tiền từng dòng và cộng tổng giá trị đơn hàng.
 - Giá bán và ngày chốt giá được lưu theo từng dòng, vì vậy việc đổi giá trong Kho hàng sau này không làm thay đổi đơn hàng cũ.
 - Tách riêng tên khách hàng, số điện thoại, loại khách hàng và kênh bán hàng trên mỗi báo giá/đơn hàng.
+- Lưu khu vực giao hàng/địa chỉ gồm phường, xã, thành phố hoặc tỉnh trên đơn hàng và Data khách hàng.
 - Tự động tạo Data khách hàng khi lưu báo giá hoặc đơn hàng mới.
+- Xuất toàn bộ Data khách hàng thành tệp Excel ngay trong menu Data khách hàng.
 - Ghi chính xác ngày và giờ khách hàng được tự động lưu vào Data khách hàng.
 - Nhận diện khách cũ khi trùng cả tên và số điện thoại; hiển thị số lần khách quay lại ngay trên biểu mẫu.
 - Thư mục Hợp đồng liên kết với đơn hàng, khách hàng và Sales phụ trách.
@@ -40,9 +42,9 @@ Giám đốc, Admin và Kế toán được cập nhật kho. Sales và Hành ch
 
 ## Phân quyền và an toàn tài khoản
 
-- **Giám đốc:** toàn quyền; sửa mọi đơn hàng, duyệt hợp đồng, phân quyền, đặt lại mật khẩu, khóa tài khoản, xem nhật ký và sao lưu.
+- **Giám đốc:** toàn quyền; sửa hoặc xóa mọi báo giá hết hiệu lực và đơn hàng chưa có hợp đồng ký, duyệt hợp đồng, phân quyền, đặt lại mật khẩu, khóa tài khoản, xem nhật ký và sao lưu.
 - **Admin:** quản trị vận hành, kho, tài khoản thường, nhật ký và sao lưu; không được tạo, khóa hoặc thay đổi tài khoản Giám đốc.
-- **Sales:** tạo và chỉ sửa đơn hàng do mình tạo hoặc được phân công; hợp đồng luôn gửi Giám đốc duyệt.
+- **Sales:** tạo, sửa và xóa đơn/báo giá do mình tạo hoặc được phân công khi nhập nhầm; không được xóa dữ liệu của người khác hoặc đơn đã có hợp đồng ký.
 - **Kế toán:** xem đơn hàng, tạo hợp đồng chờ duyệt và cập nhật kho; không được sửa đơn hàng của người khác.
 - **Hành chính:** báo cáo, kế hoạch, công văn và lịch; không được sửa đơn hàng của người khác.
 
