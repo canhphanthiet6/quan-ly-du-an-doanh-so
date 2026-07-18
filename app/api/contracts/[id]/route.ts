@@ -18,12 +18,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     if (!current.rows[0]) throw new Error("Không tìm thấy hợp đồng");
     const projectId = current.rows[0].project_id;
     const signedDate = data.signedDate || (status === "Đã ký" ? new Date().toISOString().slice(0, 10) : null);
-    await client.query(`UPDATE contracts SET contract_no=COALESCE($1,contract_no),title=COALESCE($2,title),contract_value=COALESCE($3,contract_value),signed_date=$4,status=$5,notes=COALESCE($6,notes),approved_by=CASE WHEN $5='Đã ký' THEN $7 ELSE approved_by END,updated_at=NOW() WHERE id=$8`, [
+    await client.query(`UPDATE contracts SET contract_no=COALESCE($1,contract_no),title=COALESCE($2,title),contract_value=COALESCE($3,contract_value),signed_date=$4,status=$5,notes=COALESCE($6,notes),approved_by=CASE WHEN $5 IN ('Đã ký','Hủy') THEN $7 ELSE approved_by END,updated_at=NOW() WHERE id=$8`, [
       data.contractNo || null, data.title || null, data.contractValue !== undefined ? Math.max(0, Number(data.contractValue)) : null,
       signedDate, status, data.notes || null, user.id, id,
     ]);
     const signed = await client.query<{ count: string }>("SELECT COUNT(*)::text count FROM contracts WHERE project_id=$1 AND status='Đã ký'", [projectId]);
-    if (Number(signed.rows[0].count) > 0) await client.query("UPDATE projects SET probability=100,status='Đã chốt đơn',approved_by=$1,updated_at=NOW() WHERE id=$2", [user.id, projectId]);
+    if (Number(signed.rows[0].count) > 0) await client.query("UPDATE projects SET probability=100,status='Hoàn thành',approved_by=$1,updated_at=NOW() WHERE id=$2", [user.id, projectId]);
+    else if (status === "Hủy") await client.query("UPDATE projects SET status='Hủy',approved_by=$1,updated_at=NOW() WHERE id=$2", [user.id, projectId]);
     else await client.query("UPDATE projects SET probability=80,status='Chờ khách xác nhận',updated_at=NOW() WHERE id=$1 AND probability=100", [projectId]);
     await writeAudit(client, user, {
       action: status === "Đã ký" ? "APPROVE" : "UPDATE",

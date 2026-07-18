@@ -67,6 +67,13 @@ export async function ensureSchema() {
        WHERE p.status='Hoàn thành'
          AND NOT EXISTS (SELECT 1 FROM contracts ct WHERE ct.project_id=p.id AND ct.status <> 'Hủy')
        ON CONFLICT (contract_no) DO NOTHING`,
+      `UPDATE projects p SET probability=100,status='Hoàn thành',updated_at=NOW()
+       WHERE EXISTS (SELECT 1 FROM contracts ct WHERE ct.project_id=p.id AND ct.status='Đã ký')
+         AND p.status <> 'Hoàn thành'`,
+      `UPDATE projects p SET status='Hủy',updated_at=NOW()
+       WHERE EXISTS (SELECT 1 FROM contracts ct WHERE ct.project_id=p.id AND ct.status='Hủy')
+         AND NOT EXISTS (SELECT 1 FROM contracts ct WHERE ct.project_id=p.id AND ct.status <> 'Hủy')
+         AND p.status <> 'Hủy'`,
       `CREATE TABLE IF NOT EXISTS audit_logs (id BIGSERIAL PRIMARY KEY, actor_id INTEGER REFERENCES users(id), actor_name TEXT NOT NULL DEFAULT 'Hệ thống', actor_role TEXT NOT NULL DEFAULT 'system', action TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id TEXT, description TEXT NOT NULL, metadata JSONB NOT NULL DEFAULT '{}'::jsonb, ip_address TEXT NOT NULL DEFAULT '', user_agent TEXT NOT NULL DEFAULT '', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
       `CREATE TABLE IF NOT EXISTS system_backups (id BIGSERIAL PRIMARY KEY, backup_date DATE NOT NULL DEFAULT CURRENT_DATE, backup_type TEXT NOT NULL CHECK (backup_type IN ('automatic','manual')), status TEXT NOT NULL DEFAULT 'completed', payload JSONB NOT NULL, size_bytes BIGINT NOT NULL DEFAULT 0, checksum TEXT NOT NULL, created_by INTEGER REFERENCES users(id), created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
       `CREATE INDEX IF NOT EXISTS sessions_token_idx ON sessions(token_hash)`,

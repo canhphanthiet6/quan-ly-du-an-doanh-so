@@ -591,7 +591,7 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
                 </thead>
                 <tbody>
                   {projects.map((p) => (
-                    <tr key={p.id}>
+                    <tr key={p.id} className={p.status === "Hoàn thành" ? "project-completed" : p.status === "Hủy" ? "project-cancelled" : ""}>
                       <td>
                         <b>{p.name}</b>
                         <small>{p.code} · {p.status}</small>

@@ -50,7 +50,8 @@ export async function POST(request: Request) {
       String(data.contractNo).trim(), projectId, project.customer_id || null, data.title || "", value, signedDate, status,
       project.owner_id || user.id, data.notes || "", user.id, status === "Đã ký" ? user.id : null,
     ]);
-    if (status === "Đã ký") await client.query("UPDATE projects SET probability=100,status='Đã chốt đơn',approved_by=$1,updated_at=NOW() WHERE id=$2", [user.id, projectId]);
+    if (status === "Đã ký") await client.query("UPDATE projects SET probability=100,status='Hoàn thành',approved_by=$1,updated_at=NOW() WHERE id=$2", [user.id, projectId]);
+    else if (status === "Hủy") await client.query("UPDATE projects SET status='Hủy',approved_by=$1,updated_at=NOW() WHERE id=$2", [user.id, projectId]);
     await writeAudit(client, user, {
       action: status === "Đã ký" ? "APPROVE" : "CREATE",
       entityType: "contract",
