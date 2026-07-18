@@ -8,7 +8,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const user = await getCurrentUser();
   if (!user) return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
   const { id } = await params;
-  const own = await query<{ owner_id: number; created_by: number }>("SELECT owner_id,created_by FROM projects WHERE id=$1", [id]);
+  const own = await query<{ owner_id: number; created_by: number; code: string; name: string }>("SELECT owner_id,created_by,code,name FROM projects WHERE id=$1", [id]);
   const current = own.rows[0];
   if (!current) return Response.json({ error: "Không tìm thấy" }, { status: 404 });
   if (!canManageAll(user) && current.owner_id !== user.id && current.created_by !== user.id) return Response.json({ error: "Bạn không được sửa đơn hàng của người khác" }, { status: 403 });
@@ -26,6 +26,36 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       data.deadline || null, data.nextAction || null, canManageAll(user), user.id, id,
     ]);
     await replaceOrderItems(client, Number(id), orderDetail.items);
+    let automaticContract: { id: number; contract_no: string } | undefined;
+    if (String(data.status || "") === "Hoàn thành") {
+      const timestamp = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
+      const contractResult = await client.query<{ id: number; contract_no: string }>(`
+        INSERT INTO contracts(contract_no,project_id,customer_id,title,contract_value,status,salesperson_id,notes,created_by)
+        SELECT $1,$2,$3,$4,$5,'Chờ duyệt',$6,$7,$8
+        WHERE NOT EXISTS (SELECT 1 FROM contracts WHERE project_id=$2 AND status <> 'Hủy')
+        RETURNING id,contract_no
+      `, [
+        `HD-${current.code}-${timestamp}`,
+        id,
+        customerInfo.id,
+        `Hợp đồng tự động · ${String(data.name || current.name)}`,
+        orderDetail.total,
+        ownerId,
+        "Tự động tạo khi đơn hàng chuyển sang Hoàn thành. Chờ Giám đốc duyệt.",
+        user.id,
+      ]);
+      automaticContract = contractResult.rows[0];
+      if (automaticContract) {
+        await writeAudit(client, user, {
+          action: "CREATE",
+          entityType: "contract",
+          entityId: automaticContract.id,
+          description: `Tự động tạo hợp đồng ${automaticContract.contract_no} từ đơn hàng ${current.code}`,
+          metadata: { projectId: Number(id), value: orderDetail.total, salespersonId: ownerId, source: "project_completed" },
+          ...requestAuditMetadata(request),
+        });
+      }
+    }
     await writeAudit(client, user, {
       action: "UPDATE",
       entityType: "project",
@@ -35,7 +65,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       ...requestAuditMetadata(request),
     });
     await client.query("COMMIT");
-    return Response.json({ ok: true, customerInfo });
+    return Response.json({ ok: true, customerInfo, automaticContract: automaticContract || null });
   } catch (error) {
     await client.query("ROLLBACK");
     return Response.json({ error: error instanceof Error ? error.message : "Không thể cập nhật đơn hàng" }, { status: 400 });

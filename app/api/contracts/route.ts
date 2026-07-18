@@ -7,7 +7,8 @@ export async function GET() {
   if (!user) return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
   const contracts = await query(`
     SELECT ct.*,p.name project_name,p.contractor customer_name,p.customer_phone,
-      COALESCE(s.full_name,'Chưa phân công') salesperson,COALESCE(c.full_name,'') creator
+      COALESCE(s.full_name,'Chưa phân công') salesperson,COALESCE(s.role,'') salesperson_role,
+      COALESCE(c.full_name,'') creator
     FROM contracts ct
     JOIN projects p ON p.id=ct.project_id
     LEFT JOIN users s ON s.id=ct.salesperson_id

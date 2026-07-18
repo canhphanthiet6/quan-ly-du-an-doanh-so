@@ -17,6 +17,8 @@ Website nội bộ quản lý đơn hàng, khách hàng, doanh số và công vi
 - Ghi chính xác ngày và giờ khách hàng được tự động lưu vào Data khách hàng.
 - Nhận diện khách cũ khi trùng cả tên và số điện thoại; hiển thị số lần khách quay lại ngay trên biểu mẫu.
 - Thư mục Hợp đồng liên kết với đơn hàng, khách hàng và Sales phụ trách.
+- Khi đơn hàng chuyển sang `Hoàn thành`, hệ thống tự tạo hợp đồng `Chờ duyệt`; các đơn đã hoàn thành trước đó cũng được tự bổ sung nếu chưa có hợp đồng.
+- Hợp đồng ghi rõ người bán được tính là Sales hay Giám đốc theo người được phân công trên đơn hàng.
 - Doanh số chỉ được ghi nhận khi Giám đốc duyệt hợp đồng sang trạng thái `Đã ký`; hệ thống tự cộng cho người bán được phân công trên đơn hàng.
 - Bảng tổng hợp doanh số theo từng Sales và lịch sử hợp đồng của từng khách hàng.
 - Menu Kênh bán hàng riêng, có thể chọn từng tháng để xem số khách, số đơn/báo giá, giá trị dự kiến, hợp đồng đã ký và doanh số thực tế của từng kênh.

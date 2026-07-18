@@ -104,6 +104,7 @@ type Contract = {
   status: string;
   salesperson_id: number;
   salesperson: string;
+  salesperson_role: string;
   notes: string;
   creator: string;
 };
@@ -821,17 +822,17 @@ function ContractsView({ contracts, salesSummary, director, onAdd, onEdit }: {
       <section className="contract-summary">
         <article><span>DOANH SỐ ĐÃ GHI NHẬN</span><b>{short(signedTotal)}</b><small>Chỉ tính hợp đồng trạng thái Đã ký</small></article>
         <article><span>CHỜ GIÁM ĐỐC DUYỆT</span><b>{contracts.filter((c) => c.status === "Chờ duyệt").length}</b><small>Hợp đồng chưa được cộng doanh số</small></article>
-        <article><span>HỢP ĐỒNG ĐÃ KÝ</span><b>{contracts.filter((c) => c.status === "Đã ký").length}</b><small>Đã phân bổ cho Sales phụ trách</small></article>
+        <article><span>HỢP ĐỒNG ĐÃ KÝ</span><b>{contracts.filter((c) => c.status === "Đã ký").length}</b><small>Đã phân bổ cho người bán phụ trách</small></article>
       </section>
       <section className="sales-revenue-grid">
-        {salesSummary.map((sale, index) => <article key={sale.id}><i>{index + 1}</i><span><small>DOANH SỐ SALES</small><b>{sale.full_name}</b><strong>{money(Number(sale.revenue))}</strong><em>{sale.signed_count} hợp đồng đã ký</em></span></article>)}
+        {salesSummary.map((sale, index) => <article key={sale.id}><i>{index + 1}</i><span><small>{sale.role === "director" ? "DOANH SỐ GIÁM ĐỐC" : "DOANH SỐ SALES"}</small><b>{sale.full_name}</b><strong>{money(Number(sale.revenue))}</strong><em>{sale.signed_count} hợp đồng đã ký</em></span></article>)}
         {!salesSummary.length && <div className="panel empty">Chưa có Sales hoặc hợp đồng đã ký.</div>}
       </section>
       <section className="panel page-panel contract-panel">
         <div className="panel-title"><div><h3>Thư mục hợp đồng</h3><span>Doanh số tự động cộng cho người được phân công trên đơn hàng</span></div><button onClick={onAdd}>＋ Thêm hợp đồng</button></div>
         <div className="data-table"><table>
-          <thead><tr><th>SỐ HỢP ĐỒNG</th><th>KHÁCH HÀNG</th><th>ĐƠN HÀNG</th><th>SALE ĐƯỢC TÍNH</th><th>GIÁ TRỊ</th><th>NGÀY KÝ</th><th>TRẠNG THÁI</th><th></th></tr></thead>
-          <tbody>{contracts.map((c) => <tr key={c.id}><td><b>{c.contract_no}</b><small>{c.title}</small></td><td>{c.customer_name}<small>{c.customer_phone}</small></td><td>{c.project_name}</td><td><b>{c.salesperson}</b></td><td><b>{money(Number(c.contract_value))}</b></td><td>{c.signed_date ? new Date(c.signed_date).toLocaleDateString("vi-VN") : "—"}</td><td><mark className={c.status === "Đã ký" ? "contract-signed" : c.status === "Hủy" ? "contract-cancel" : "contract-pending"}>{c.status}</mark></td><td>{director && <button onClick={() => onEdit(c)}>Duyệt / Sửa</button>}</td></tr>)}</tbody>
+          <thead><tr><th>SỐ HỢP ĐỒNG</th><th>KHÁCH HÀNG</th><th>ĐƠN HÀNG</th><th>NGƯỜI BÁN ĐƯỢC TÍNH</th><th>GIÁ TRỊ</th><th>NGÀY KÝ</th><th>TRẠNG THÁI</th><th></th></tr></thead>
+          <tbody>{contracts.map((c) => <tr key={c.id}><td><b>{c.contract_no}</b><small>{c.title}</small></td><td>{c.customer_name}<small>{c.customer_phone}</small></td><td>{c.project_name}</td><td><b>{c.salesperson}</b><small>{c.salesperson_role === "director" ? "Giám đốc bán hàng" : "Sales bán hàng"}</small></td><td><b>{money(Number(c.contract_value))}</b></td><td>{c.signed_date ? new Date(c.signed_date).toLocaleDateString("vi-VN") : "—"}</td><td><mark className={c.status === "Đã ký" ? "contract-signed" : c.status === "Hủy" ? "contract-cancel" : "contract-pending"}>{c.status}</mark></td><td>{director && <button onClick={() => onEdit(c)}>Duyệt / Sửa</button>}</td></tr>)}</tbody>
         </table>{!contracts.length && <p className="empty">Chưa có hợp đồng. Bấm “Thêm hợp đồng” để bắt đầu.</p>}</div>
       </section>
     </>
