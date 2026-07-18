@@ -31,8 +31,36 @@ Website nội bộ quản lý đơn hàng, khách hàng, doanh số và công vi
 - Báo cáo công việc, kế hoạch tuần, công văn đi/đến, lịch họp, lịch hẹn và công tác.
 - Thông báo việc sắp đến hạn hoặc đã quá hạn.
 - Quản lý vai trò: Giám đốc, Admin, Sales, Kế toán, Hành chính.
+- Bắt buộc đổi mật khẩu tạm trong lần đăng nhập đầu tiên; mật khẩu tối thiểu 10 ký tự và phải có chữ lẫn số.
+- Giám đốc/Admin có thể đặt lại mật khẩu, khóa hoặc mở khóa tài khoản; thao tác khóa sẽ đăng xuất tài khoản đó khỏi mọi thiết bị.
+- Nhật ký hệ thống ghi người thực hiện, thời gian và nội dung thêm, sửa, xóa, duyệt hợp đồng, quản lý tài khoản và sao lưu.
+- Dữ liệu nghiệp vụ được tự động sao lưu mỗi ngày, lưu 30 ngày; Giám đốc/Admin có thể tạo bản thủ công và tải tệp JSON về máy.
 
 Giám đốc, Admin và Kế toán được cập nhật kho. Sales và Hành chính được xem dữ liệu kho nhưng không được tạo phiếu.
+
+## Phân quyền và an toàn tài khoản
+
+- **Giám đốc:** toàn quyền; sửa mọi đơn hàng, duyệt hợp đồng, phân quyền, đặt lại mật khẩu, khóa tài khoản, xem nhật ký và sao lưu.
+- **Admin:** quản trị vận hành, kho, tài khoản thường, nhật ký và sao lưu; không được tạo, khóa hoặc thay đổi tài khoản Giám đốc.
+- **Sales:** tạo và chỉ sửa đơn hàng do mình tạo hoặc được phân công; hợp đồng luôn gửi Giám đốc duyệt.
+- **Kế toán:** xem đơn hàng, tạo hợp đồng chờ duyệt và cập nhật kho; không được sửa đơn hàng của người khác.
+- **Hành chính:** báo cáo, kế hoạch, công văn và lịch; không được sửa đơn hàng của người khác.
+
+Hệ thống không xóa tài khoản nhân viên nghỉ việc. Giám đốc/Admin dùng chức năng **Khóa tài khoản** để giữ nguyên lịch sử nhưng chặn đăng nhập.
+
+## Sao lưu
+
+- Bản sao lưu ứng dụng được tạo tự động khi có lượt sử dụng đầu tiên trong ngày.
+- Chỉ lưu dữ liệu nghiệp vụ và thông tin tài khoản không nhạy cảm; không xuất mật khẩu hoặc phiên đăng nhập.
+- Bản lưu cũ hơn 30 ngày được tự xóa.
+- Trước khi nhập dữ liệu lớn hoặc thay đổi quan trọng, vào **Sao lưu dữ liệu → Sao lưu ngay**, sau đó tải tệp về máy công ty.
+- Bản sao lưu này bảo vệ trước thao tác nhầm. Khi nâng cấp Railway, cần bật thêm sao lưu PostgreSQL của Railway để phục hồi khi toàn bộ dịch vụ hoặc ổ đĩa gặp sự cố.
+
+## Quy định tên miền
+
+- Tên miền phải đăng ký bằng tên công ty hoặc Giám đốc.
+- Email quản lý tên miền phải là email do công ty kiểm soát; bật xác thực hai bước và tự động gia hạn.
+- Không giao quyền sở hữu tên miền cho nhân viên hoặc đơn vị thiết kế website.
 
 ## Quy tắc khách hàng và hợp đồng
 

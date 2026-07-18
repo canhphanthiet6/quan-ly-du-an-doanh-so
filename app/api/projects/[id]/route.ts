@@ -1,4 +1,5 @@
 import { canManageAll, getCurrentUser } from "../../../../server/auth";
+import { requestAuditMetadata, writeAudit } from "../../../../server/audit";
 import { saveCustomer } from "../../../../server/customer";
 import { ensureSchema, getPool, query } from "../../../../server/db";
 import { prepareOrderItems, replaceOrderItems } from "../../../../server/order-items";
@@ -25,6 +26,14 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       data.deadline || null, data.nextAction || null, canManageAll(user), user.id, id,
     ]);
     await replaceOrderItems(client, Number(id), orderDetail.items);
+    await writeAudit(client, user, {
+      action: "UPDATE",
+      entityType: "project",
+      entityId: id,
+      description: `Cập nhật đơn hàng ${String(data.name || id)}`,
+      metadata: { value: orderDetail.total, ownerId, status: data.status || null, items: orderDetail.items.length },
+      ...requestAuditMetadata(request),
+    });
     await client.query("COMMIT");
     return Response.json({ ok: true, customerInfo });
   } catch (error) {
@@ -35,14 +44,33 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   }
 }
 
-export async function DELETE(_: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser();
   if (!user) return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
   const { id } = await params;
-  const own = await query<{ owner_id: number; created_by: number }>("SELECT owner_id,created_by FROM projects WHERE id=$1", [id]);
+  const own = await query<{ owner_id: number; created_by: number; code: string; name: string; value: string }>("SELECT owner_id,created_by,code,name,value::text FROM projects WHERE id=$1", [id]);
   const project = own.rows[0];
   if (!project) return Response.json({ error: "Không tìm thấy" }, { status: 404 });
   if (!canManageAll(user) && project.owner_id !== user.id && project.created_by !== user.id) return Response.json({ error: "Bạn không được xóa đơn hàng của người khác" }, { status: 403 });
-  await query("DELETE FROM projects WHERE id=$1", [id]);
+  await ensureSchema();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("DELETE FROM projects WHERE id=$1", [id]);
+    await writeAudit(client, user, {
+      action: "DELETE",
+      entityType: "project",
+      entityId: id,
+      description: `Xóa đơn hàng ${project.code} · ${project.name}`,
+      metadata: { value: project.value },
+      ...requestAuditMetadata(request),
+    });
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    return Response.json({ error: error instanceof Error ? error.message : "Không thể xóa đơn hàng" }, { status: 400 });
+  } finally {
+    client.release();
+  }
   return Response.json({ ok: true });
 }

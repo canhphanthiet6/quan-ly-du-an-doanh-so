@@ -1,4 +1,5 @@
 import { canManageInventory, getCurrentUser } from "../../../server/auth";
+import { requestAuditMetadata, writeAudit } from "../../../server/audit";
 import { ensureSchema, getPool, query } from "../../../server/db";
 
 export async function GET() {
@@ -53,6 +54,14 @@ export async function POST(request: Request) {
     if (initialStock > 0) {
       await client.query(`INSERT INTO inventory_movements(product_id,movement_type,quantity,unit_price,movement_date,note,created_by) VALUES($1,'Nhập',$2,$3,CURRENT_DATE,'Tồn đầu kỳ',$4)`, [product.rows[0].id, initialStock, costPrice, user.id]);
     }
+    await writeAudit(client, user, {
+      action: "CREATE",
+      entityType: "inventory_product",
+      entityId: product.rows[0].id,
+      description: `Thêm hàng hóa ${String(data.name).trim()}`,
+      metadata: { sku: product.rows[0].sku, initialStock, costPrice, salePrice: Number(data.salePrice || 0) },
+      ...requestAuditMetadata(request),
+    });
     await client.query("COMMIT");
     return Response.json({ product: product.rows[0] }, { status: 201 });
   } catch (error) {

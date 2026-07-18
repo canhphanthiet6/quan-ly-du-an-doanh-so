@@ -1,4 +1,5 @@
 import { getCurrentUser } from "../../../server/auth";
+import { requestAuditMetadata, writeAudit } from "../../../server/audit";
 import { ensureSchema, getPool, query } from "../../../server/db";
 
 export async function GET() {
@@ -49,6 +50,14 @@ export async function POST(request: Request) {
       project.owner_id || user.id, data.notes || "", user.id, status === "Đã ký" ? user.id : null,
     ]);
     if (status === "Đã ký") await client.query("UPDATE projects SET probability=100,status='Đã chốt đơn',approved_by=$1,updated_at=NOW() WHERE id=$2", [user.id, projectId]);
+    await writeAudit(client, user, {
+      action: status === "Đã ký" ? "APPROVE" : "CREATE",
+      entityType: "contract",
+      entityId: result.rows[0].id,
+      description: `${status === "Đã ký" ? "Duyệt" : "Thêm"} hợp đồng ${String(data.contractNo).trim()}`,
+      metadata: { projectId, value, status, salespersonId: project.owner_id || user.id },
+      ...requestAuditMetadata(request),
+    });
     await client.query("COMMIT");
     return Response.json({ contract: result.rows[0] }, { status: 201 });
   } catch (error) {

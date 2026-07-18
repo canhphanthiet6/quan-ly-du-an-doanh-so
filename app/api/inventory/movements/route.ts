@@ -1,4 +1,5 @@
 import { canManageInventory, getCurrentUser } from "../../../../server/auth";
+import { requestAuditMetadata, writeAudit } from "../../../../server/audit";
 import { ensureSchema, getPool, query } from "../../../../server/db";
 
 export async function GET() {
@@ -32,6 +33,13 @@ export async function POST(request: Request) {
       productId, movementType, quantity, unitPrice, data.movementDate || new Date().toISOString().slice(0, 10), data.note || "", user.id,
     ]);
     await client.query(`UPDATE inventory_products SET stock_qty=$1,cost_price=CASE WHEN $2='Nhập' AND $3>0 THEN $3 ELSE cost_price END,sale_price=CASE WHEN $2='Xuất' AND $3>0 THEN $3 ELSE sale_price END,updated_at=NOW() WHERE id=$4`, [nextStock, movementType, unitPrice, productId]);
+    await writeAudit(client, user, {
+      action: "CREATE",
+      entityType: "inventory_movement",
+      description: `${movementType} kho ${quantity} đơn vị`,
+      metadata: { productId, movementType, quantity, unitPrice, nextStock, note: data.note || "" },
+      ...requestAuditMetadata(request),
+    });
     await client.query("COMMIT");
     return Response.json({ ok: true, stockQty: nextStock }, { status: 201 });
   } catch (error) {

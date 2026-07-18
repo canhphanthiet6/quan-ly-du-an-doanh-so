@@ -32,4 +32,5 @@ export async function getCurrentUser():Promise<CurrentUser|null>{
 }
 export function canManageAll(user:CurrentUser){return user.role==="director";}
 export function canManageUsers(user:CurrentUser){return user.role==="director"||user.role==="admin";}
+export function canViewSecurity(user:CurrentUser){return user.role==="director"||user.role==="admin";}
 export function canManageInventory(user:CurrentUser){return user.role==="director"||user.role==="admin"||user.role==="accounting";}

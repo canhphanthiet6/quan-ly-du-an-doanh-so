@@ -117,6 +117,29 @@ type ChannelPerformance = {
   revenue: number;
 };
 
+type AuditLog = {
+  id: number;
+  actor_name: string;
+  actor_role: string;
+  action: string;
+  entity_type: string;
+  entity_id: string;
+  description: string;
+  ip_address: string;
+  created_at: string;
+};
+
+type SystemBackup = {
+  id: number;
+  backup_date: string;
+  backup_type: "automatic" | "manual";
+  status: string;
+  size_bytes: number;
+  checksum: string;
+  creator: string;
+  created_at: string;
+};
+
 const VIEWS = [
   ["overview", "Tổng quan", "▦"],
   ["projects", "Đơn hàng", "▱"],
@@ -130,6 +153,8 @@ const VIEWS = [
   ["documents", "Công văn đi / đến", "▤"],
   ["events", "Lịch họp & công tác", "◷"],
   ["users", "Nhân sự", "♙"],
+  ["audit", "Nhật ký hệ thống", "◎"],
+  ["backups", "Sao lưu dữ liệu", "⬡"],
 ] as const;
 
 const SEAFOOD_PRODUCTS = [
@@ -196,20 +221,24 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
   const [movements, setMovements] = useState<InventoryMovement[]>([]);
   const [items, setItems] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [backups, setBackups] = useState<SystemBackup[]>([]);
   const [notes, setNotes] = useState<any[]>([]);
-  const [modal, setModal] = useState<string | null>(null);
+  const [modal, setModal] = useState<string | null>(initialUser.mustChangePassword ? "change-password" : null);
   const [editing, setEditing] = useState<Project | null>(null);
   const [editingProduct, setEditingProduct] = useState<InventoryProduct | null>(null);
   const [editingContract, setEditingContract] = useState<Contract | null>(null);
+  const [managingUser, setManagingUser] = useState<any | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [flash, setFlash] = useState("");
 
   const loadCore = async () => {
+    const canManageSecurity = ["director", "admin"].includes(initialUser.role);
     const [p, n, u, inventory, stockMoves, customerData, contractData] = await Promise.all([
       fetch("/api/projects").then((r) => r.json()),
       fetch("/api/notifications").then((r) => r.json()),
-      fetch("/api/users").then((r) => r.json()),
+      canManageSecurity ? fetch("/api/users").then((r) => r.json()) : Promise.resolve({ users: [] }),
       fetch("/api/inventory").then((r) => r.json()),
       fetch("/api/inventory/movements").then((r) => r.json()),
       fetch("/api/customers").then((r) => r.json()),
@@ -246,6 +275,11 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
       .finally(() => setChannelLoading(false));
   }, [view, channelMonth]);
 
+  useEffect(() => {
+    if (view === "audit") fetch("/api/audit").then((r) => r.json()).then((d) => setAuditLogs(d.logs || []));
+    if (view === "backups") fetch("/api/backups").then((r) => r.json()).then((d) => setBackups(d.backups || []));
+  }, [view]);
+
   const total = projects.reduce((sum, p) => sum + Number(p.value), 0);
   const weighted = projects.reduce((sum, p) => sum + (Number(p.value) * p.probability) / 100, 0);
   const signedRevenue = contracts
@@ -254,6 +288,9 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
   const canEdit = (p: Project) =>
     initialUser.role === "director" || p.owner_id === initialUser.id || p.created_by === initialUser.id;
   const canManageStock = ["director", "admin", "accounting"].includes(initialUser.role);
+  const canManageSecurity = ["director", "admin"].includes(initialUser.role);
+  const canManageOffice = ["director", "admin", "hr"].includes(initialUser.role);
+  const visibleViews = VIEWS.filter(([id]) => !["users", "audit", "backups"].includes(id) || canManageSecurity);
   const stockAlerts = products.filter((p) => Number(p.stock_qty) <= Number(p.min_stock)).length;
   const pendingContracts = contracts.filter((contract) => contract.status === "Chờ duyệt").length;
   const actionAlerts = notes.length + stockAlerts + pendingContracts;
@@ -261,6 +298,21 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
     location.href = "/login";
+  }
+
+  async function createBackup() {
+    setBusy(true);
+    setError("");
+    const response = await fetch("/api/backups", { method: "POST" });
+    const data = await response.json();
+    setBusy(false);
+    if (!response.ok) {
+      setError(data.error || "Không thể tạo bản sao lưu");
+      return;
+    }
+    const refreshed = await fetch("/api/backups").then((r) => r.json());
+    setBackups(refreshed.backups || []);
+    setFlash("Đã tạo bản sao lưu dữ liệu thành công.");
   }
 
   async function submit(e: FormEvent<HTMLFormElement>) {
@@ -284,6 +336,11 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
       method = editingContract ? "PATCH" : "POST";
     } else if (modal === "user") {
       url = "/api/users";
+    } else if (modal === "manage-user") {
+      url = "/api/users/" + managingUser?.id;
+      method = "PATCH";
+    } else if (modal === "change-password") {
+      url = "/api/auth/change-password";
     } else {
       url = "/api/modules/" + modal;
     }
@@ -298,6 +355,10 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
       setError(data.error || "Không thể lưu");
       return;
     }
+    if (modal === "change-password") {
+      location.href = "/login";
+      return;
+    }
     if (modal === "project" && !editing && data.customerInfo?.isExisting) {
       setFlash(`Khách cũ ${data.project?.contractor || ""} đã quay lại lần ${data.customerInfo.returnNumber}. Hồ sơ đã được cập nhật trong Data khách hàng.`);
     } else if (modal === "contract" && (data.contract?.status === "Đã ký" || editingContract)) {
@@ -307,6 +368,7 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
     setEditing(null);
     setEditingProduct(null);
     setEditingContract(null);
+    setManagingUser(null);
     await loadCore();
     if (["reports", "plans", "documents", "events"].includes(view)) {
       const refreshed = await fetch("/api/modules/" + view).then((r) => r.json());
@@ -325,7 +387,7 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
           </span>
         </div>
         <nav>
-          {VIEWS.map(([id, label, icon]) => (
+          {visibleViews.map(([id, label, icon]) => (
             <button key={id} className={view === id ? "on" : ""} onClick={() => setView(id)}>
               <i>{icon}</i>
               {label}
@@ -352,7 +414,8 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
                       : "Hành chính"}
             </small>
           </span>
-          <button onClick={logout}>↪</button>
+          <button className="password-button" onClick={() => setModal("change-password")} title="Đổi mật khẩu">●</button>
+          <button onClick={logout} title="Đăng xuất">↪</button>
         </div>
       </aside>
 
@@ -365,7 +428,7 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
           <button className="notify" onClick={() => setView("overview")}> 
             ♢<b>{actionAlerts}</b>
           </button>
-          {!["customers", "channels"].includes(view) && (!["inventory", "movements"].includes(view) || canManageStock) && (
+          {!["customers", "channels", "audit", "backups"].includes(view) && (!["inventory", "movements"].includes(view) || canManageStock) && (!["documents", "events"].includes(view) || canManageOffice) && (
             <button
               className="add"
               onClick={() => {
@@ -577,15 +640,19 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
         )}
 
         {["reports", "plans", "documents", "events"].includes(view) && (
-          <ModuleView kind={view} items={items} onAdd={() => setModal(view)} />
+          <ModuleView kind={view} items={items} canAdd={!["documents", "events"].includes(view) || canManageOffice} onAdd={() => setModal(view)} />
         )}
         {view === "users" && (
           <UsersView
             users={users}
-            canAdd={["director", "admin"].includes(initialUser.role)}
+            currentUser={initialUser}
+            canAdd={canManageSecurity}
             onAdd={() => setModal("user")}
+            onManage={(user) => { setManagingUser(user); setModal("manage-user"); }}
           />
         )}
+        {view === "audit" && <AuditView logs={auditLogs} />}
+        {view === "backups" && <BackupsView backups={backups} busy={busy} error={error} onCreate={createBackup} />}
       </main>
 
       {modal && (
@@ -594,13 +661,18 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
           editing={editing}
           editingProduct={editingProduct}
           editingContract={editingContract}
+          managingUser={managingUser}
           users={users}
           products={products}
           projects={projects}
           director={initialUser.role === "director"}
+          passwordRequired={initialUser.mustChangePassword}
           busy={busy}
           error={error}
-          onClose={() => { setModal(null); setEditing(null); setEditingProduct(null); setEditingContract(null); setError(""); }}
+          onClose={() => {
+            if (initialUser.mustChangePassword && modal === "change-password") return;
+            setModal(null); setEditing(null); setEditingProduct(null); setEditingContract(null); setManagingUser(null); setError("");
+          }}
           onSubmit={submit}
         />
       )}
@@ -841,7 +913,7 @@ function MovementView({ movements, canManage, onAdd }: { movements: InventoryMov
   );
 }
 
-function ModuleView({ kind, items, onAdd }: { kind: string; items: any[]; onAdd: () => void }) {
+function ModuleView({ kind, items, canAdd, onAdd }: { kind: string; items: any[]; canAdd: boolean; onAdd: () => void }) {
   const meta: any = {
     reports: ["Báo cáo công việc", ["Ngày", "Người báo cáo", "Khách hàng / Đơn hàng", "Nội dung", "Kết quả / Bước tiếp"]],
     plans: ["Kế hoạch tuần", ["Tuần", "Người phụ trách", "Công việc", "Hạn", "Trạng thái"]],
@@ -855,7 +927,7 @@ function ModuleView({ kind, items, onAdd }: { kind: string; items: any[]; onAdd:
           <h3>{meta[kind][0]}</h3>
           <span>Dữ liệu dùng chung toàn công ty</span>
         </div>
-        <button onClick={onAdd}>＋ Thêm mới</button>
+        {canAdd && <button onClick={onAdd}>＋ Thêm mới</button>}
       </div>
       <div className="data-table">
         <table>
@@ -882,41 +954,101 @@ function ModuleView({ kind, items, onAdd }: { kind: string; items: any[]; onAdd:
   );
 }
 
-function UsersView({ users, canAdd, onAdd }: { users: any[]; canAdd: boolean; onAdd: () => void }) {
+function UsersView({ users, currentUser, canAdd, onAdd, onManage }: { users: any[]; currentUser: User; canAdd: boolean; onAdd: () => void; onManage: (user: any) => void }) {
+  const permissionRows = [
+    ["Giám đốc", "Toàn bộ dữ liệu", "Duyệt hợp đồng, sửa mọi đơn, phân quyền, khóa tài khoản"],
+    ["Admin", "Toàn bộ dữ liệu vận hành", "Tạo tài khoản thường, quản lý kho, sao lưu và xem nhật ký"],
+    ["Sales", "Dữ liệu bán hàng", "Chỉ sửa đơn do mình tạo hoặc được phân công"],
+    ["Kế toán", "Đơn hàng, hợp đồng, kho", "Tạo hợp đồng chờ duyệt và cập nhật kho"],
+    ["Hành chính", "Báo cáo, kế hoạch, công văn, lịch", "Không sửa đơn hàng của người khác"],
+  ];
   return (
-    <section className="panel page-panel">
-      <div className="panel-title">
-        <div>
-          <h3>Nhân sự & phân quyền</h3>
-          <span>Dự kiến 6 tài khoản: 1 Giám đốc, 1 Admin, 2 Sales, 1 Kế toán, 1 Hành chính</span>
+    <>
+      <section className="panel page-panel">
+        <div className="panel-title">
+          <div>
+            <h3>Nhân sự & phân quyền</h3>
+            <span>6 tài khoản: 1 Giám đốc, 1 Admin, 2 Sales, 1 Kế toán, 1 Hành chính</span>
+          </div>
+          {canAdd && <button onClick={onAdd}>＋ Tạo tài khoản</button>}
         </div>
-        {canAdd && <button onClick={onAdd}>＋ Tạo tài khoản</button>}
-      </div>
-      <div className="people-grid">
-        {users.map((u) => (
-          <article key={u.id}>
-            <i>{u.full_name.split(" ").slice(-2).map((x: string) => x[0]).join("")}</i>
-            <div>
-              <b>{u.full_name}</b>
-              <span>@{u.username}</span>
-              <mark>{u.role_label}</mark>
-            </div>
-          </article>
-        ))}
-      </div>
+        <div className="people-grid security-people">
+          {users.map((u) => (
+            <article key={u.id} className={!u.active ? "account-locked" : ""}>
+              <i>{u.full_name.split(" ").slice(-2).map((x: string) => x[0]).join("")}</i>
+              <div>
+                <b>{u.full_name}</b>
+                <span>@{u.username}</span>
+                <mark>{u.role_label}</mark>
+                <small>{u.active ? (u.must_change_password ? "Phải đổi mật khẩu khi đăng nhập" : "Đang hoạt động") : "Đã khóa tài khoản"}</small>
+                <small>Đăng nhập gần nhất: {u.last_login_at ? dateTime(u.last_login_at) : "Chưa đăng nhập"}</small>
+              </div>
+              {(currentUser.role === "director" || u.role !== "director") && <button onClick={() => onManage(u)}>Quản lý</button>}
+            </article>
+          ))}
+        </div>
+      </section>
+      <section className="panel page-panel permission-panel">
+        <div className="panel-title"><div><h3>Ma trận quyền hạn</h3><span>Quyền được kiểm tra tại máy chủ, không chỉ ẩn nút trên màn hình</span></div></div>
+        <div className="data-table"><table><thead><tr><th>VAI TRÒ</th><th>PHẠM VI XEM</th><th>QUYỀN CHÍNH</th></tr></thead><tbody>
+          {permissionRows.map((row) => <tr key={row[0]}><td><b>{row[0]}</b></td><td>{row[1]}</td><td>{row[2]}</td></tr>)}
+        </tbody></table></div>
+      </section>
+    </>
+  );
+}
+
+function AuditView({ logs }: { logs: AuditLog[] }) {
+  const labels: Record<string, string> = {
+    CREATE: "Thêm mới", UPDATE: "Cập nhật", DELETE: "Xóa", APPROVE: "Phê duyệt",
+    USER_CREATE: "Tạo tài khoản", USER_UPDATE: "Sửa tài khoản", ACCOUNT_LOCK: "Khóa tài khoản",
+    ACCOUNT_UNLOCK: "Mở khóa", PASSWORD_RESET: "Đặt lại mật khẩu", PASSWORD_CHANGE: "Đổi mật khẩu",
+    LOGIN: "Đăng nhập", LOGIN_FAILED: "Đăng nhập lỗi", BACKUP_CREATE: "Tạo sao lưu", BACKUP_DOWNLOAD: "Tải sao lưu",
+    SYSTEM_SETUP: "Thiết lập",
+  };
+  return (
+    <section className="panel page-panel audit-panel">
+      <div className="panel-title"><div><h3>Nhật ký hoạt động</h3><span>Ghi lại người thực hiện, thời gian và nội dung thêm · sửa · xóa · phê duyệt</span></div></div>
+      <div className="data-table"><table><thead><tr><th>THỜI GIAN</th><th>NGƯỜI THỰC HIỆN</th><th>HÀNH ĐỘNG</th><th>ĐỐI TƯỢNG</th><th>NỘI DUNG</th><th>IP</th></tr></thead>
+        <tbody>{logs.map((log) => <tr key={log.id}><td>{dateTime(log.created_at)}</td><td><b>{log.actor_name}</b><small>{log.actor_role}</small></td><td><mark className={"audit-" + log.action.toLowerCase()}>{labels[log.action] || log.action}</mark></td><td>{log.entity_type}<small>{log.entity_id ? "#" + log.entity_id : ""}</small></td><td>{log.description}</td><td>{log.ip_address || "—"}</td></tr>)}</tbody>
+      </table>{!logs.length && <p className="empty">Chưa có hoạt động nào được ghi nhận.</p>}</div>
     </section>
   );
 }
 
-function Modal({ kind, editing, editingProduct, editingContract, users, products, projects, director, busy, error, onClose, onSubmit }: {
+function BackupsView({ backups, busy, error, onCreate }: { backups: SystemBackup[]; busy: boolean; error: string; onCreate: () => void }) {
+  const latestAuto = backups.find((backup) => backup.backup_type === "automatic");
+  const size = (bytes: number) => bytes >= 1048576 ? (bytes / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(bytes / 1024)) + " KB";
+  return (
+    <>
+      <section className="backup-summary">
+        <article><span>SAO LƯU TỰ ĐỘNG</span><b>{latestAuto ? "Đang hoạt động" : "Đang khởi tạo"}</b><small>Mỗi ngày một bản, tự xóa sau 30 ngày</small></article>
+        <article><span>BẢN GẦN NHẤT</span><b>{backups[0] ? new Date(backups[0].created_at).toLocaleDateString("vi-VN") : "—"}</b><small>{backups[0] ? dateTime(backups[0].created_at) : "Chưa có dữ liệu"}</small></article>
+        <article><span>TỔNG BẢN LƯU</span><b>{backups.length}</b><small>Có thể tải tệp JSON về máy an toàn</small></article>
+      </section>
+      <section className="panel page-panel backup-panel">
+        <div className="panel-title"><div><h3>Sao lưu dữ liệu kinh doanh</h3><span>Tự động sao lưu hằng ngày; tạo thủ công trước khi thay đổi quan trọng</span></div><button onClick={onCreate} disabled={busy}>{busy ? "Đang sao lưu..." : "＋ Sao lưu ngay"}</button></div>
+        {error && <div className="form-error">{error}</div>}
+        <div className="backup-note">Bản lưu ứng dụng bảo vệ dữ liệu nghiệp vụ trước thao tác nhầm. Khi nâng cấp Railway, cần bật thêm bản sao lưu PostgreSQL để phòng sự cố toàn bộ máy chủ.</div>
+        <div className="data-table"><table><thead><tr><th>THỜI GIAN</th><th>LOẠI</th><th>TRẠNG THÁI</th><th>DUNG LƯỢNG</th><th>NGƯỜI TẠO</th><th>MÃ KIỂM TRA</th><th></th></tr></thead>
+          <tbody>{backups.map((backup) => <tr key={backup.id}><td><b>{dateTime(backup.created_at)}</b><small>Ngày dữ liệu: {new Date(backup.backup_date + "T00:00:00").toLocaleDateString("vi-VN")}</small></td><td><mark className={backup.backup_type === "automatic" ? "backup-auto" : "backup-manual"}>{backup.backup_type === "automatic" ? "Tự động" : "Thủ công"}</mark></td><td>Hoàn tất</td><td>{size(Number(backup.size_bytes))}</td><td>{backup.creator}</td><td><code>{backup.checksum.slice(0, 12)}…</code></td><td><a className="table-link" href={"/api/backups?download=" + backup.id}>Tải xuống</a></td></tr>)}</tbody>
+        </table>{!backups.length && <p className="empty">Bản sao lưu đầu tiên sẽ được tạo tự động.</p>}</div>
+      </section>
+    </>
+  );
+}
+
+function Modal({ kind, editing, editingProduct, editingContract, managingUser, users, products, projects, director, passwordRequired, busy, error, onClose, onSubmit }: {
   kind: string;
   editing: Project | null;
   editingProduct: InventoryProduct | null;
   editingContract: Contract | null;
+  managingUser: any | null;
   users: any[];
   products: InventoryProduct[];
   projects: Project[];
   director: boolean;
+  passwordRequired: boolean;
   busy: boolean;
   error: string;
   onClose: () => void;
@@ -932,6 +1064,8 @@ function Modal({ kind, editing, editingProduct, editingContract, users, products
     documents: "Thêm công văn",
     events: "Thêm lịch công việc",
     user: "Tạo tài khoản",
+    "manage-user": "Quản lý tài khoản",
+    "change-password": passwordRequired ? "Đổi mật khẩu để tiếp tục" : "Đổi mật khẩu",
   };
   return (
     <div className="modal-back" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
@@ -939,7 +1073,7 @@ function Modal({ kind, editing, editingProduct, editingContract, users, products
         <div>
           <small>HẢI SẢN CẢNG PHAN THIẾT</small>
           <h2>{title[kind]}</h2>
-          <button type="button" onClick={onClose}>×</button>
+          {!(passwordRequired && kind === "change-password") && <button type="button" onClick={onClose}>×</button>}
         </div>
         <div className="modal-fields">
           {kind === "project" ? (
@@ -1026,18 +1160,35 @@ function Modal({ kind, editing, editingProduct, editingContract, users, products
               <label>Người tham dự<input name="participants" /></label>
               <label className="wide">Ghi chú<textarea name="notes" /></label>
             </>
+          ) : kind === "manage-user" ? (
+            <>
+              <label>Họ và tên<input name="fullName" required defaultValue={managingUser?.full_name} /></label>
+              <label>Tên đăng nhập<input value={managingUser?.username || ""} disabled /></label>
+              <label>Vai trò<select name="role" defaultValue={managingUser?.role}><option value="sales">Sales</option><option value="accounting">Kế toán</option><option value="hr">Hành chính</option><option value="admin">Admin</option>{director && <option value="director">Giám đốc</option>}</select></label>
+              <label className="account-switch">Trạng thái tài khoản<input type="hidden" name="active" value="false" /><span><input name="active" type="checkbox" value="true" defaultChecked={managingUser?.active} /> Cho phép đăng nhập</span></label>
+              <label className="wide">Đặt lại mật khẩu tạm<input name="temporaryPassword" type="password" minLength={10} autoComplete="new-password" placeholder="Để trống nếu không đổi; tối thiểu 10 ký tự gồm chữ và số" /><small>Nếu nhập mật khẩu mới, tài khoản sẽ bị đăng xuất và phải đổi mật khẩu ở lần đăng nhập tiếp theo.</small></label>
+            </>
+          ) : kind === "change-password" ? (
+            <>
+              {passwordRequired && <div className="password-required wide"><b>Đây là mật khẩu tạm.</b><span>Anh/chị cần tạo mật khẩu riêng trước khi sử dụng hệ thống.</span></div>}
+              <label className="wide">Mật khẩu hiện tại<input name="currentPassword" type="password" required autoComplete="current-password" /></label>
+              <label>Mật khẩu mới<input name="newPassword" type="password" required minLength={10} autoComplete="new-password" placeholder="Ít nhất 10 ký tự, gồm chữ và số" /></label>
+              <label>Xác nhận mật khẩu mới<input name="confirmPassword" type="password" required minLength={10} autoComplete="new-password" /></label>
+              <div className="password-guide wide">Sau khi đổi mật khẩu, hệ thống sẽ đăng xuất khỏi các thiết bị. Hãy đăng nhập lại bằng mật khẩu mới.</div>
+            </>
           ) : (
             <>
               <label>Họ và tên<input name="fullName" required /></label>
               <label>Tên đăng nhập<input name="username" required /></label>
-              <label>Vai trò<select name="role"><option value="sales">Sales</option><option value="accounting">Kế toán</option><option value="hr">Hành chính</option><option value="admin">Admin</option><option value="director">Giám đốc</option></select></label>
-              <label>Mật khẩu tạm<input name="password" minLength={6} required /></label>
+              <label>Vai trò<select name="role"><option value="sales">Sales</option><option value="accounting">Kế toán</option><option value="hr">Hành chính</option><option value="admin">Admin</option>{director && <option value="director">Giám đốc</option>}</select></label>
+              <label>Mật khẩu tạm<input name="password" type="password" minLength={10} required placeholder="Tối thiểu 10 ký tự gồm chữ và số" /></label>
+              <div className="form-hint wide">Người dùng phải đổi mật khẩu tạm trong lần đăng nhập đầu tiên.</div>
             </>
           )}
         </div>
         {error && <div className="form-error">{error}</div>}
         <footer>
-          <button type="button" onClick={onClose}>Hủy</button>
+          {!(passwordRequired && kind === "change-password") && <button type="button" onClick={onClose}>Hủy</button>}
           <button className="save" disabled={busy}>{busy ? "Đang lưu..." : "Lưu thông tin"}</button>
         </footer>
       </form>

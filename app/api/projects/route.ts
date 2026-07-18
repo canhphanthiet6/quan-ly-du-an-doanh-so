@@ -1,4 +1,5 @@
 import { canManageAll, getCurrentUser } from "../../../server/auth";
+import { requestAuditMetadata, writeAudit } from "../../../server/audit";
 import { saveCustomer } from "../../../server/customer";
 import { ensureSchema, getPool, query } from "../../../server/db";
 import { prepareOrderItems, replaceOrderItems } from "../../../server/order-items";
@@ -41,6 +42,14 @@ export async function POST(request: Request) {
       orderDetail.summary, ownerId, Number(data.probability || 30), data.status || "Khách mới / Quan tâm", orderDetail.total, data.deadline || null, data.nextAction || "", user.id,
     ]);
     await replaceOrderItems(client, result.rows[0].id, orderDetail.items);
+    await writeAudit(client, user, {
+      action: "CREATE",
+      entityType: "project",
+      entityId: result.rows[0].id,
+      description: `Thêm đơn hàng ${String(data.code || "")} · ${String(data.name || "")}`,
+      metadata: { value: orderDetail.total, ownerId, customerId: customerInfo.id, items: orderDetail.items.length },
+      ...requestAuditMetadata(request),
+    });
     await client.query("COMMIT");
     return Response.json({ project: result.rows[0], customerInfo }, { status: 201 });
   } catch (error) {

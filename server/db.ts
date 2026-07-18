@@ -1,6 +1,12 @@
 import { Pool, QueryResultRow } from "pg";
+import { createBusinessDataBackup } from "./backup";
 
-declare global { var __vietWaterPool: Pool | undefined; var __vietWaterReady: Promise<void> | undefined; }
+declare global {
+  var __vietWaterPool: Pool | undefined;
+  var __vietWaterReady: Promise<void> | undefined;
+  var __seafoodBackupDate: string | undefined;
+  var __seafoodBackupReady: Promise<void> | undefined;
+}
 
 export function getPool() {
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL chưa được cấu hình. Hãy thêm PostgreSQL vào Railway.");
@@ -14,6 +20,9 @@ export async function ensureSchema() {
     const db = getPool();
     const statements = [
       `CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, username TEXT UNIQUE NOT NULL, full_name TEXT NOT NULL, role TEXT NOT NULL CHECK (role IN ('director','admin','sales','accounting','hr')), password_hash TEXT NOT NULL, password_salt TEXT NOT NULL, active BOOLEAN NOT NULL DEFAULT TRUE, must_change_password BOOLEAN NOT NULL DEFAULT TRUE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMPTZ`,
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ`,
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`,
       `CREATE TABLE IF NOT EXISTS sessions (id SERIAL PRIMARY KEY, token_hash TEXT UNIQUE NOT NULL, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
       `CREATE TABLE IF NOT EXISTS projects (id SERIAL PRIMARY KEY, code TEXT NOT NULL, name TEXT NOT NULL, contractor TEXT NOT NULL DEFAULT '', product TEXT NOT NULL DEFAULT '', owner_id INTEGER REFERENCES users(id), probability INTEGER NOT NULL DEFAULT 30, status TEXT NOT NULL DEFAULT 'Khách mới / Quan tâm', value BIGINT NOT NULL DEFAULT 0, deadline DATE, next_action TEXT NOT NULL DEFAULT '', created_by INTEGER REFERENCES users(id), approved_by INTEGER REFERENCES users(id), created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
       `CREATE TABLE IF NOT EXISTS customers (id SERIAL PRIMARY KEY, normalized_name TEXT NOT NULL, normalized_phone TEXT NOT NULL, name TEXT NOT NULL, phone TEXT NOT NULL, customer_type TEXT NOT NULL DEFAULT 'Khách lẻ', sales_channel TEXT NOT NULL DEFAULT 'Trực tiếp', contact_count INTEGER NOT NULL DEFAULT 1, first_contact_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), last_contact_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), assigned_to INTEGER REFERENCES users(id), created_by INTEGER REFERENCES users(id), created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE(normalized_name,normalized_phone))`,
@@ -50,6 +59,8 @@ export async function ensureSchema() {
       `CREATE TABLE IF NOT EXISTS project_items (id SERIAL PRIMARY KEY, project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE, product_id INTEGER NOT NULL REFERENCES inventory_products(id), product_name TEXT NOT NULL, unit TEXT NOT NULL DEFAULT 'kg', quantity NUMERIC(14,3) NOT NULL CHECK (quantity > 0), unit_price NUMERIC(14,2) NOT NULL DEFAULT 0, price_date DATE NOT NULL DEFAULT CURRENT_DATE, line_total NUMERIC(16,2) NOT NULL DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
       `CREATE TABLE IF NOT EXISTS inventory_movements (id SERIAL PRIMARY KEY, product_id INTEGER NOT NULL REFERENCES inventory_products(id), movement_type TEXT NOT NULL CHECK (movement_type IN ('Nhập','Xuất','Điều chỉnh tăng','Điều chỉnh giảm')), quantity NUMERIC(14,3) NOT NULL CHECK (quantity > 0), unit_price NUMERIC(14,2) NOT NULL DEFAULT 0, movement_date DATE NOT NULL DEFAULT CURRENT_DATE, note TEXT NOT NULL DEFAULT '', created_by INTEGER REFERENCES users(id), created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
       `CREATE TABLE IF NOT EXISTS contracts (id SERIAL PRIMARY KEY, contract_no TEXT UNIQUE NOT NULL, project_id INTEGER NOT NULL REFERENCES projects(id), customer_id INTEGER REFERENCES customers(id), title TEXT NOT NULL DEFAULT '', contract_value BIGINT NOT NULL DEFAULT 0, signed_date DATE, status TEXT NOT NULL DEFAULT 'Chờ duyệt' CHECK (status IN ('Chờ duyệt','Đã ký','Hủy')), salesperson_id INTEGER REFERENCES users(id), notes TEXT NOT NULL DEFAULT '', created_by INTEGER REFERENCES users(id), approved_by INTEGER REFERENCES users(id), created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+      `CREATE TABLE IF NOT EXISTS audit_logs (id BIGSERIAL PRIMARY KEY, actor_id INTEGER REFERENCES users(id), actor_name TEXT NOT NULL DEFAULT 'Hệ thống', actor_role TEXT NOT NULL DEFAULT 'system', action TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id TEXT, description TEXT NOT NULL, metadata JSONB NOT NULL DEFAULT '{}'::jsonb, ip_address TEXT NOT NULL DEFAULT '', user_agent TEXT NOT NULL DEFAULT '', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+      `CREATE TABLE IF NOT EXISTS system_backups (id BIGSERIAL PRIMARY KEY, backup_date DATE NOT NULL DEFAULT CURRENT_DATE, backup_type TEXT NOT NULL CHECK (backup_type IN ('automatic','manual')), status TEXT NOT NULL DEFAULT 'completed', payload JSONB NOT NULL, size_bytes BIGINT NOT NULL DEFAULT 0, checksum TEXT NOT NULL, created_by INTEGER REFERENCES users(id), created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
       `CREATE INDEX IF NOT EXISTS sessions_token_idx ON sessions(token_hash)`,
       `CREATE INDEX IF NOT EXISTS projects_owner_idx ON projects(owner_id)`,
       `CREATE INDEX IF NOT EXISTS reports_user_idx ON work_reports(user_id)`,
@@ -61,6 +72,10 @@ export async function ensureSchema() {
       `CREATE INDEX IF NOT EXISTS projects_customer_idx ON projects(customer_id)`,
       `CREATE INDEX IF NOT EXISTS contracts_salesperson_idx ON contracts(salesperson_id)`,
       `CREATE INDEX IF NOT EXISTS contracts_project_idx ON contracts(project_id)`,
+      `CREATE INDEX IF NOT EXISTS audit_logs_created_idx ON audit_logs(created_at DESC)`,
+      `CREATE INDEX IF NOT EXISTS audit_logs_actor_idx ON audit_logs(actor_id,created_at DESC)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS system_backups_daily_auto_idx ON system_backups(backup_date) WHERE backup_type='automatic'`,
+      `CREATE INDEX IF NOT EXISTS system_backups_created_idx ON system_backups(created_at DESC)`,
     ];
     for (const sql of statements) await db.query(sql);
   })().catch(error => { global.__vietWaterReady = undefined; throw error; });
@@ -69,5 +84,17 @@ export async function ensureSchema() {
 
 export async function query<T extends QueryResultRow = Record<string, unknown>>(text: string, values: unknown[] = []) {
   await ensureSchema();
-  return getPool().query<T>(text, values);
+  const pool = getPool();
+  const today = new Date().toISOString().slice(0, 10);
+  if (global.__seafoodBackupDate !== today) {
+    global.__seafoodBackupDate = today;
+    global.__seafoodBackupReady = createBusinessDataBackup(pool, "automatic", null)
+      .then(() => undefined)
+      .catch((error) => {
+        global.__seafoodBackupDate = undefined;
+        console.error("Không thể tạo bản sao lưu tự động", error);
+      });
+  }
+  await global.__seafoodBackupReady;
+  return pool.query<T>(text, values);
 }
