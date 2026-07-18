@@ -63,6 +63,7 @@ type InventoryProduct = {
 
 type InventoryMovement = {
   id: number;
+  product_id: number;
   product_name: string;
   sku: string;
   unit: string;
@@ -334,6 +335,23 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
       return;
     }
     setFlash(`Đã xóa ${project.code} · ${project.name}.`);
+    await loadCore();
+  }
+
+  async function deleteMovement(movement: InventoryMovement) {
+    const confirmed = window.confirm(`Xóa phiếu ${movement.movement_type.toLowerCase()} ${movement.product_name} ngày ${new Date(movement.movement_date).toLocaleDateString("vi-VN")}? Tồn kho sẽ được hoàn tác tự động.`);
+    if (!confirmed) return;
+    setBusy(true);
+    setError("");
+    const response = await fetch(`/api/inventory/movements/${movement.id}`, { method: "DELETE" });
+    const data = await response.json();
+    setBusy(false);
+    if (!response.ok) {
+      setError(data.error || "Không thể xóa phiếu kho");
+      window.alert(data.error || "Không thể xóa phiếu kho");
+      return;
+    }
+    setFlash(`Đã xóa phiếu ${movement.movement_type.toLowerCase()} ${movement.product_name} và hoàn tác tồn kho.`);
     await loadCore();
   }
 
@@ -661,7 +679,7 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
         )}
 
         {view === "movements" && (
-          <MovementView movements={movements} canManage={canManageStock} onAdd={() => setModal("movement")} />
+          <MovementView movements={movements} canManage={canManageStock} busy={busy} onAdd={() => setModal("movement")} onDelete={deleteMovement} />
         )}
 
         {["reports", "plans", "documents", "events"].includes(view) && (
@@ -690,6 +708,7 @@ export default function Dashboard({ initialUser }: { initialUser: User }) {
           users={users}
           products={products}
           projects={projects}
+          movements={movements}
           director={initialUser.role === "director"}
           passwordRequired={initialUser.mustChangePassword}
           busy={busy}
@@ -885,7 +904,7 @@ function InventoryView({ products, canManage, onAdd, onEdit, onMovement }: {
       <section className="panel page-panel inventory-panel">
         <div className="panel-title">
           <div><h3>Hàng tồn kho</h3><span>Hàng hết được tô đỏ; hàng sắp hết được tô vàng</span></div>
-          {canManage && <div className="panel-actions"><button onClick={onMovement}>＋ Xuất / nhập</button><button onClick={onAdd}>＋ Thêm hàng hóa</button></div>}
+          {canManage && <div className="panel-actions"><button onClick={onMovement}>＋ Nhập giá hôm nay</button><button onClick={onAdd}>＋ Thêm hàng hóa</button></div>}
         </div>
         <div className="data-table">
           <table>
@@ -920,7 +939,7 @@ function InventoryView({ products, canManage, onAdd, onEdit, onMovement }: {
   );
 }
 
-function MovementView({ movements, canManage, onAdd }: { movements: InventoryMovement[]; canManage: boolean; onAdd: () => void }) {
+function MovementView({ movements, canManage, busy, onAdd, onDelete }: { movements: InventoryMovement[]; canManage: boolean; busy: boolean; onAdd: () => void; onDelete: (movement: InventoryMovement) => void }) {
   const quantity = (value: number) => new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 3 }).format(Number(value) || 0);
   const priceComparison = (movement: InventoryMovement) => {
     if (movement.movement_type !== "Nhập") return <span className="price-na">—</span>;
@@ -938,13 +957,13 @@ function MovementView({ movements, canManage, onAdd }: { movements: InventoryMov
   };
   return (
     <section className="panel page-panel movement-panel">
-      <div className="panel-title"><div><h3>Lịch sử xuất / nhập kho</h3><span>Mỗi lần nhập giữ giá theo ngày và tự so sánh với lần nhập trước</span></div>{canManage && <button onClick={onAdd}>＋ Tạo phiếu kho</button>}</div>
+      <div className="panel-title"><div><h3>Nhập hàng theo ngày</h3><span>Chọn hàng hóa để xem 2 giá nhập gần nhất; có thể xuất Excel hoặc xóa phiếu nhập sai</span></div><div className="panel-actions"><a className="export-button" href="/api/inventory/movements/export">↓ Xuất Excel</a>{canManage && <button onClick={onAdd}>＋ Nhập / xuất hàng</button>}</div></div>
       <div className="data-table">
         <table>
-          <thead><tr><th>NGÀY</th><th>LOẠI PHIẾU</th><th>HÀNG HÓA</th><th>SỐ LƯỢNG</th><th>ĐƠN GIÁ THEO NGÀY</th><th>SO VỚI LẦN NHẬP TRƯỚC</th><th>THÀNH TIỀN</th><th>NGƯỜI TẠO / GHI CHÚ</th></tr></thead>
+          <thead><tr><th>NGÀY</th><th>LOẠI PHIẾU</th><th>HÀNG HÓA</th><th>SỐ LƯỢNG</th><th>ĐƠN GIÁ THEO NGÀY</th><th>SO VỚI LẦN NHẬP TRƯỚC</th><th>THÀNH TIỀN</th><th>NGƯỜI TẠO / GHI CHÚ</th><th></th></tr></thead>
           <tbody>{movements.map((m) => {
             const isOut = m.movement_type === "Xuất" || m.movement_type === "Điều chỉnh giảm";
-            return <tr key={m.id}><td>{new Date(m.movement_date).toLocaleDateString("vi-VN")}</td><td><mark className={isOut ? "move-out" : "move-in"}>{m.movement_type}</mark></td><td><b>{m.product_name}</b><small>{m.sku}</small></td><td><strong>{isOut ? "−" : "+"}{quantity(m.quantity)} {m.unit}</strong></td><td><b>{money(Number(m.unit_price))}</b><small>Giá ngày {new Date(m.movement_date).toLocaleDateString("vi-VN")}</small></td><td>{priceComparison(m)}</td><td><b>{money(Number(m.unit_price) * Number(m.quantity))}</b></td><td>{m.creator}<small>{m.note}</small></td></tr>;
+            return <tr key={m.id}><td>{new Date(m.movement_date).toLocaleDateString("vi-VN")}</td><td><mark className={isOut ? "move-out" : "move-in"}>{m.movement_type}</mark></td><td><b>{m.product_name}</b><small>{m.sku}</small></td><td><strong>{isOut ? "−" : "+"}{quantity(m.quantity)} {m.unit}</strong></td><td><b>{money(Number(m.unit_price))}</b><small>Giá ngày {new Date(m.movement_date).toLocaleDateString("vi-VN")}</small></td><td>{priceComparison(m)}</td><td><b>{money(Number(m.unit_price) * Number(m.quantity))}</b></td><td>{m.creator}<small>{m.note}</small></td><td>{canManage && <button className="danger-button" disabled={busy} onClick={() => onDelete(m)}>Xóa</button>}</td></tr>;
           })}</tbody>
         </table>
         {!movements.length && <p className="empty">Chưa có giao dịch xuất nhập kho.</p>}
@@ -1078,7 +1097,36 @@ function BackupsView({ backups, busy, error, onCreate }: { backups: SystemBackup
   );
 }
 
-function Modal({ kind, editing, editingProduct, editingContract, managingUser, users, products, projects, director, passwordRequired, busy, error, onClose, onSubmit }: {
+function MovementFields({ products, movements }: { products: InventoryProduct[]; movements: InventoryMovement[] }) {
+  const [movementType, setMovementType] = useState("Nhập");
+  const [productId, setProductId] = useState("");
+  const [unitPrice, setUnitPrice] = useState("");
+  const selectedProduct = products.find((product) => String(product.id) === productId);
+  const recentImports = movements
+    .filter((movement) => movement.movement_type === "Nhập" && String(movement.product_id) === productId)
+    .sort((a, b) => String(b.movement_date).localeCompare(String(a.movement_date)) || b.id - a.id)
+    .slice(0, 2);
+  const latestPrice = recentImports[0] ? Number(recentImports[0].unit_price) : null;
+  const difference = latestPrice !== null && Number(unitPrice) > 0 ? Number(unitPrice) - latestPrice : null;
+  const percent = difference !== null && latestPrice !== null && latestPrice > 0 ? difference / latestPrice * 100 : null;
+  return <>
+    <div className="daily-price-guide wide"><b>Không tạo lại mặt hàng mới mỗi ngày.</b><span>Hãy chọn mặt hàng đã có bên dưới, nhập ngày, số lượng và giá mới hôm nay. Hệ thống sẽ lưu thành một dòng lịch sử riêng.</span></div>
+    <label>Loại phiếu<select name="movementType" value={movementType} onChange={(event) => setMovementType(event.target.value)}><option>Nhập</option><option>Xuất</option><option>Điều chỉnh tăng</option><option>Điều chỉnh giảm</option></select></label>
+    <label>Ngày xuất / nhập<input name="movementDate" type="date" required defaultValue={new Date().toISOString().slice(0, 10)} /></label>
+    <label className="wide">Hàng hóa<select name="productId" required value={productId} onChange={(event) => setProductId(event.target.value)}><option value="" disabled>Chọn hàng hóa</option>{products.map((product) => <option key={product.id} value={product.id}>{product.name} — tồn {Number(product.stock_qty).toLocaleString("vi-VN")} {product.unit}</option>)}</select></label>
+    {movementType === "Nhập" && productId && <div className="recent-price-history wide">
+      <div><b>2 giá nhập gần nhất · {selectedProduct?.name}</b><small>Dùng để đối chiếu trước khi lưu giá mới</small></div>
+      <section>{recentImports.length ? recentImports.map((movement, index) => <article key={movement.id}><span>{index === 0 ? "Gần nhất" : "Lần trước nữa"}</span><b>{money(Number(movement.unit_price))}/{movement.unit}</b><small>{new Date(movement.movement_date).toLocaleDateString("vi-VN")} · {Number(movement.quantity).toLocaleString("vi-VN")} {movement.unit}</small></article>) : <p>Chưa có giá nhập cũ cho mặt hàng này.</p>}</section>
+    </div>}
+    <label>Số lượng<input name="quantity" type="number" min="0.001" step="0.001" required /></label>
+    <label>Đơn giá nhập / bán<input name="unitPrice" type="number" min={movementType === "Nhập" ? "1" : "0"} required={movementType === "Nhập"} value={unitPrice} onChange={(event) => setUnitPrice(event.target.value)} placeholder={movementType === "Nhập" ? "Nhập giá mới hôm nay" : "0"} /></label>
+    {movementType === "Nhập" && difference !== null && <div className={`new-price-comparison wide ${difference > 0 ? "up" : difference < 0 ? "down" : "same"}`}><span>Giá mới so với lần gần nhất</span><b>{difference > 0 ? "+" : difference < 0 ? "−" : ""}{money(Math.abs(difference))}{percent !== null ? ` (${difference > 0 ? "+" : difference < 0 ? "−" : ""}${Math.abs(percent).toLocaleString("vi-VN", { maximumFractionDigits: 1 })}%)` : ""}</b></div>}
+    <label className="wide">Ghi chú<input name="note" placeholder="Nhà cung cấp, khách hàng, số đơn..." /></label>
+    {!products.length && <div className="form-hint wide">Cần tạo ít nhất một hàng hóa trước khi lập phiếu kho.</div>}
+  </>;
+}
+
+function Modal({ kind, editing, editingProduct, editingContract, managingUser, users, products, projects, movements, director, passwordRequired, busy, error, onClose, onSubmit }: {
   kind: string;
   editing: Project | null;
   editingProduct: InventoryProduct | null;
@@ -1087,6 +1135,7 @@ function Modal({ kind, editing, editingProduct, editingContract, managingUser, u
   users: any[];
   products: InventoryProduct[];
   projects: Project[];
+  movements: InventoryMovement[];
   director: boolean;
   passwordRequired: boolean;
   busy: boolean;
@@ -1143,15 +1192,7 @@ function Modal({ kind, editing, editingProduct, editingContract, managingUser, u
               <label className="wide">Ghi chú mùa vụ<textarea name="seasonNote" defaultValue={editingProduct?.season_note} placeholder="VD: Cá béo, thịt chắc; ưu tiên nguồn ghe về sáng..." /></label>
             </>
           ) : kind === "movement" ? (
-            <>
-              <label>Loại phiếu<select name="movementType"><option>Nhập</option><option>Xuất</option><option>Điều chỉnh tăng</option><option>Điều chỉnh giảm</option></select></label>
-              <label>Ngày xuất / nhập<input name="movementDate" type="date" required defaultValue={new Date().toISOString().slice(0, 10)} /></label>
-              <label className="wide">Hàng hóa<select name="productId" required defaultValue=""><option value="" disabled>Chọn hàng hóa</option>{products.map((product) => <option key={product.id} value={product.id}>{product.name} — tồn {Number(product.stock_qty).toLocaleString("vi-VN")} {product.unit}</option>)}</select></label>
-              <label>Số lượng<input name="quantity" type="number" min="0.001" step="0.001" required /></label>
-              <label>Đơn giá nhập / bán<input name="unitPrice" type="number" min="0" defaultValue="0" /></label>
-              <label className="wide">Ghi chú<input name="note" placeholder="Nhà cung cấp, khách hàng, số đơn..." /></label>
-              {!products.length && <div className="form-hint wide">Cần tạo ít nhất một hàng hóa trước khi lập phiếu kho.</div>}
-            </>
+            <MovementFields products={products} movements={movements} />
           ) : kind === "contract" ? (
             <>
               {editingContract ? <div className="contract-edit-info wide"><b>{editingContract.project_name}</b><span>{editingContract.customer_name} · {editingContract.customer_phone}</span><small>Doanh số ghi cho: {editingContract.salesperson}</small></div> : <label className="wide">Đơn hàng liên kết<select name="projectId" required defaultValue=""><option value="" disabled>Chọn đơn hàng / báo giá</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.code} — {project.contractor} — {money(Number(project.value))} — Sale: {project.owner}</option>)}</select></label>}
