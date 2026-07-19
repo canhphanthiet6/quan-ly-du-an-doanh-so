@@ -980,7 +980,18 @@ function InventoryView({ products, canManage, onAdd, onEdit, onDelete, onMovemen
 }
 
 function MovementView({ movements, canManage, busy, onAdd, onDelete }: { movements: InventoryMovement[]; canManage: boolean; busy: boolean; onAdd: () => void; onDelete: (movement: InventoryMovement) => void }) {
+  const [selectedDate, setSelectedDate] = useState("");
   const quantity = (value: number) => new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 3 }).format(Number(value) || 0);
+  const movementDateKey = (value: string) => String(value || "").slice(0, 10);
+  const filteredMovements = selectedDate
+    ? movements.filter((movement) => movementDateKey(movement.movement_date) === selectedDate)
+    : movements;
+  const dailyImportValue = filteredMovements
+    .filter((movement) => movement.movement_type === "Nhập")
+    .reduce((sum, movement) => sum + Number(movement.unit_price) * Number(movement.quantity), 0);
+  const selectedDateLabel = selectedDate
+    ? new Date(selectedDate + "T00:00:00").toLocaleDateString("vi-VN")
+    : "Tất cả các ngày";
   const priceComparison = (movement: InventoryMovement) => {
     if (movement.movement_type !== "Nhập") return <span className="price-na">—</span>;
     if (movement.previous_unit_price === null || movement.previous_unit_price === undefined) return <span className="price-first">Lần nhập đầu tiên</span>;
@@ -997,16 +1008,24 @@ function MovementView({ movements, canManage, busy, onAdd, onDelete }: { movemen
   };
   return (
     <section className="panel page-panel movement-panel">
-      <div className="panel-title"><div><h3>Nhập hàng theo ngày</h3><span>Chọn hàng hóa để xem 2 giá nhập gần nhất; có thể xuất Excel hoặc xóa phiếu nhập sai</span></div><div className="panel-actions"><a className="export-button" href="/api/inventory/movements/export">↓ Xuất Excel</a>{canManage && <button onClick={onAdd}>＋ Nhập / xuất hàng</button>}</div></div>
+      <div className="panel-title"><div><h3>Nhập hàng theo ngày</h3><span>Chọn một ngày để chỉ xem giá nhập và các phiếu phát sinh trong ngày đó</span></div><div className="panel-actions"><a className="export-button" href="/api/inventory/movements/export">↓ Xuất Excel</a>{canManage && <button onClick={onAdd}>＋ Nhập / xuất hàng</button>}</div></div>
+      <div className="movement-date-filter">
+        <label>
+          <span>CHỌN NGÀY CẦN XEM</span>
+          <input type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} />
+        </label>
+        <div><span>ĐANG HIỂN THỊ</span><b>{selectedDateLabel}</b><small>{filteredMovements.length} phiếu · Tổng tiền nhập {money(dailyImportValue)}</small></div>
+        {selectedDate && <button type="button" onClick={() => setSelectedDate("")}>Xem tất cả ngày</button>}
+      </div>
       <div className="data-table">
         <table>
           <thead><tr><th>NGÀY</th><th>LOẠI PHIẾU</th><th>HÀNG HÓA</th><th>SỐ LƯỢNG</th><th>ĐƠN GIÁ THEO NGÀY</th><th>SO VỚI LẦN NHẬP TRƯỚC</th><th>THÀNH TIỀN</th><th>NGƯỜI TẠO / GHI CHÚ</th><th></th></tr></thead>
-          <tbody>{movements.map((m) => {
+          <tbody>{filteredMovements.map((m) => {
             const isOut = m.movement_type === "Xuất" || m.movement_type === "Điều chỉnh giảm";
             return <tr key={m.id}><td>{new Date(m.movement_date).toLocaleDateString("vi-VN")}</td><td><mark className={isOut ? "move-out" : "move-in"}>{m.movement_type}</mark></td><td><b>{m.product_name}</b><small>{m.sku}</small></td><td><strong>{isOut ? "−" : "+"}{quantity(m.quantity)} {m.unit}</strong></td><td><b>{money(Number(m.unit_price))}</b><small>Giá ngày {new Date(m.movement_date).toLocaleDateString("vi-VN")}</small></td><td>{priceComparison(m)}</td><td><b>{money(Number(m.unit_price) * Number(m.quantity))}</b></td><td>{m.creator}<small>{m.note}</small></td><td>{canManage && <button className="danger-button" disabled={busy} onClick={() => onDelete(m)}>Xóa</button>}</td></tr>;
           })}</tbody>
         </table>
-        {!movements.length && <p className="empty">Chưa có giao dịch xuất nhập kho.</p>}
+        {!filteredMovements.length && <p className="empty">{selectedDate ? `Ngày ${selectedDateLabel} chưa có phiếu nhập/xuất kho.` : "Chưa có giao dịch xuất nhập kho."}</p>}
       </div>
     </section>
   );
